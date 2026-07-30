@@ -1,0 +1,10 @@
+{
+  "name": "haiku_gate_direct_question",
+  "description": "User asks the bot a direct follow-up question — should respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> show me the error logs"},
+    {"author": "bot", "text": "Here are the last 10 errors from staging:\n1. NullPointerException in UserService\n2. TimeoutError in PaymentGateway"}
+  ],
+  "new_message": "can you show me more detail on that timeout error?",
+  "expect_respond": true
+}

@@ -1,0 +1,28 @@
+{
+  "name": "dm_simple_no_coding",
+  "description": "DM pipeline: simple question should not trigger tools",
+  "needs_llm": true,
+  "context": {
+    "keycard_identity": "test-user",
+    "team_id": "T001",
+    "user_id": "U001",
+    "channel_id": "D001",
+    "thread_ts": "",
+    "message_ts": "500.003",
+    "chat_type": "private",
+    "is_private": true
+  },
+  "user_message": "What is 3 * 7? Reply with just the number.",
+  "setup": {
+    "keycard_token": "test-token-dm"
+  },
+  "expect": {
+    "completed": true,
+    "no_errors": true,
+    "max_turns": 3,
+    "has_tool_call_count": 0,
+    "text_contains_any": [
+      "21"
+    ]
+  }
+}

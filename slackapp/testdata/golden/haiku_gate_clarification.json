@@ -1,0 +1,11 @@
+{
+  "name": "haiku_gate_clarification",
+  "description": "User asks for clarification on bot's response — should respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> how do I set up the dev environment?"},
+    {"author": "bot", "text": "Run `make setup` and then configure your .env file with the required variables."},
+    {"author": "U001", "text": "what variables do I need?"}
+  ],
+  "new_message": "what variables do I need?",
+  "expect_respond": true
+}

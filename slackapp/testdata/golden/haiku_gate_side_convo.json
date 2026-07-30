@@ -1,0 +1,12 @@
+{
+  "name": "haiku_gate_side_convo",
+  "description": "Users talking to each other, not the bot — should not respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> what's the deploy status?"},
+    {"author": "bot", "text": "The last deploy was 2 hours ago to staging."},
+    {"author": "U002", "text": "hey alice, are you joining the standup?"},
+    {"author": "U001", "text": "yeah be there in 5"}
+  ],
+  "new_message": "yeah be there in 5",
+  "expect_respond": false
+}

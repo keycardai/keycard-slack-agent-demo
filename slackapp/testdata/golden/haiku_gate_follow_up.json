@@ -1,0 +1,11 @@
+{
+  "name": "haiku_gate_follow_up",
+  "description": "User answers the bot's question — should respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> help me deploy"},
+    {"author": "bot", "text": "Sure! Which environment — staging or production?"},
+    {"author": "U001", "text": "staging"}
+  ],
+  "new_message": "staging",
+  "expect_respond": true
+}

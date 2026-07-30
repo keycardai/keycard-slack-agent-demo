@@ -1,0 +1,27 @@
+{
+  "name": "dm_simple_response",
+  "description": "Simple DM conversation: no tools needed, just a text response",
+  "needs_llm": true,
+  "context": {
+    "keycard_identity": "test-user",
+    "team_id": "T001",
+    "user_id": "U001",
+    "channel_id": "D001",
+    "thread_ts": "",
+    "message_ts": "400.001",
+    "chat_type": "private",
+    "is_private": true
+  },
+  "user_message": "What is the capital of France? Reply with just the city name, nothing else.",
+  "setup": {
+    "keycard_token": "test-token-dm"
+  },
+  "expect": {
+    "completed": true,
+    "no_errors": true,
+    "max_turns": 3,
+    "text_contains": [
+      "Paris"
+    ]
+  }
+}

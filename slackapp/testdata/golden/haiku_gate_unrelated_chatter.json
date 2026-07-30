@@ -1,0 +1,11 @@
+{
+  "name": "haiku_gate_unrelated_chatter",
+  "description": "Someone posts unrelated chatter in the thread — should not respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> summarize the PR"},
+    {"author": "bot", "text": "PR #42 adds retry logic to the payment service with exponential backoff."},
+    {"author": "U003", "text": "lol did anyone see the game last night"}
+  ],
+  "new_message": "lol did anyone see the game last night",
+  "expect_respond": false
+}

@@ -1,0 +1,28 @@
+{
+  "name": "channel_mention_triggers",
+  "description": "Public channel with bot mention: agent runs and responds",
+  "needs_llm": true,
+  "context": {
+    "keycard_identity": "test-user",
+    "team_id": "T001",
+    "user_id": "U001",
+    "channel_id": "C001",
+    "thread_ts": "",
+    "message_ts": "200.001",
+    "chat_type": "public",
+    "is_private": false
+  },
+  "user_message": "What is 2 + 2? Reply with just the number.",
+  "setup": {
+    "keycard_token": "test-token-channel"
+  },
+  "expect": {
+    "completed": true,
+    "no_errors": true,
+    "max_turns": 5,
+    "text_contains_any": [
+      "4",
+      "four"
+    ]
+  }
+}

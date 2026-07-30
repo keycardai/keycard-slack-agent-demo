@@ -1,0 +1,67 @@
+package db
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/keycardai/slack-agent/crypto"
+)
+
+func openAt(t *testing.T, name string) *DB {
+	t.Helper()
+	cipher, err := crypto.NewCipher([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	database, err := Open(filepath.Join(t.TempDir(), name), cipher)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	return database
+}
+
+func TestForeignKeysAreEnforced(t *testing.T) {
+	// foreign_keys is a per-connection pragma, not stored in the file, so the REFERENCES clauses in
+	// schema.sql did nothing until the DSN set it. This test is the only thing standing between the
+	// constraint and it silently becoming decorative again.
+	database := openAt(t, "fk.db")
+	_, err := database.conn.Exec(
+		`INSERT INTO messages (id, session_id, role, content) VALUES ('m1', 'no-such-session', 'user', 'hi')`,
+	)
+	if err == nil {
+		t.Fatal("expected the insert to violate the foreign key on messages.session_id")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "foreign key") {
+		t.Fatalf("expected a foreign key error, got %v", err)
+	}
+}
+
+func TestSchemaIsEmbeddedNotReadFromTheWorkingDirectory(t *testing.T) {
+	// The schema used to be read from ./schema.sql at runtime, so the binary only started when it
+	// was launched from the right directory. Opening from a temp dir proves it travels with the code.
+	database := openAt(t, "embedded.db")
+	var count int
+	if err := database.conn.QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'`,
+	).Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 1 {
+		t.Fatal("expected the embedded schema to have created the users table")
+	}
+}
+
+func TestDSNPreservesCallerParameters(t *testing.T) {
+	got := dsn("/data/agent.db?cache=shared")
+	if !strings.HasPrefix(got, "/data/agent.db?cache=shared&") {
+		t.Fatalf("caller parameters were dropped: %q", got)
+	}
+	if !strings.Contains(got, "_foreign_keys=on") || !strings.Contains(got, "_busy_timeout=") {
+		t.Fatalf("connection parameters missing: %q", got)
+	}
+	if strings.Count(dsn("/data/agent.db"), "?") != 1 {
+		t.Fatalf("expected exactly one query separator: %q", dsn("/data/agent.db"))
+	}
+}

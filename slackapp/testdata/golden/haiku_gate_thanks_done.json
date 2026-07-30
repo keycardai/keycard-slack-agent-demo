@@ -1,0 +1,11 @@
+{
+  "name": "haiku_gate_thanks_done",
+  "description": "User says thanks with no further ask — should not respond",
+  "thread_context": [
+    {"author": "U001", "text": "<@BOT> what's 2+2?"},
+    {"author": "bot", "text": "4"},
+    {"author": "U001", "text": "thanks"}
+  ],
+  "new_message": "thanks",
+  "expect_respond": false
+}

@@ -1,0 +1,14 @@
+# Local configuration and secrets
+.env
+.env.local
+.env.test
+
+# Build output
+/slack-agent
+/dist/
+
+# Local database
+/data/
+*.db
+*.db-shm
+*.db-wal
