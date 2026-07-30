@@ -118,7 +118,11 @@ func (d *DB) StoreUserTokens(teamID, userID string, tokens *UserTokens) error {
 			refresh_token = excluded.refresh_token,
 			expires_at = excluded.expires_at
 	`, teamID, userID, tokens.KeycardIdentity, encAccess, encRefresh, tokens.ExpiresAt)
-	return err
+	if err != nil {
+		return err
+	}
+	// A successful link ends the suppression, so a future disconnect prompts immediately.
+	return d.ClearAuthPrompts(teamID, userID)
 }
 
 func (d *DB) GetUserTokens(teamID, userID string) (*UserTokens, error) {
@@ -249,21 +253,38 @@ func (d *DB) GetContext(sessionID string) ([]app.StoredMessage, error) {
 	return messages, nil
 }
 
+// AuthPromptCooldown is how long a "connect your account" prompt suppresses the next one.
+//
+// The suppression used to be permanent. sent_at was recorded and never read, so a person who
+// ignored the prompt once was never prompted again, and every later message did nothing with no
+// feedback. Suppression exists to avoid nagging inside one conversation, not to give up on someone.
+const AuthPromptCooldown = 24 * time.Hour
+
 func (d *DB) HasAuthPromptSent(teamID, userID, prompt string) (bool, error) {
 	if teamID == "" || userID == "" || prompt == "" {
 		return false, nil
 	}
-	var exists int
+	var sentAt int64
 	err := d.conn.QueryRow(`
-		SELECT 1 FROM auth_prompts WHERE team_id = ? AND user_id = ? AND prompt = ? LIMIT 1
-	`, teamID, userID, prompt).Scan(&exists)
+		SELECT sent_at FROM auth_prompts WHERE team_id = ? AND user_id = ? AND prompt = ? LIMIT 1
+	`, teamID, userID, prompt).Scan(&sentAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
 	}
-	return true, nil
+	return time.Now().Before(time.Unix(sentAt, 0).Add(AuthPromptCooldown)), nil
+}
+
+// ClearAuthPrompts drops a user's prompt suppression. Called once they have linked, so a later
+// disconnect prompts them again straight away rather than after the cooldown.
+func (d *DB) ClearAuthPrompts(teamID, userID string) error {
+	if teamID == "" || userID == "" {
+		return nil
+	}
+	_, err := d.conn.Exec(`DELETE FROM auth_prompts WHERE team_id = ? AND user_id = ?`, teamID, userID)
+	return err
 }
 
 func (d *DB) MarkAuthPromptSent(teamID, userID, prompt string) error {
