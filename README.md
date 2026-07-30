@@ -53,7 +53,7 @@ Event subscriptions are message events rather than `app_mention`, because the ag
 ## Tests
 
 ```bash
-go test ./...                  # 141 tests, no network, no API key
+go test ./...                  # 144 tests, no network, no API key
 go vet ./...
 ```
 

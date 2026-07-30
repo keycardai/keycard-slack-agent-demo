@@ -23,6 +23,7 @@ type Config struct {
 	EncryptionKey               []byte
 	StateSecret                 []byte
 	AnthropicAPIKey             string
+	AnthropicModel              string
 }
 
 func Load() (Config, error) {
@@ -43,6 +44,7 @@ func Load() (Config, error) {
 		EncryptionKey:               []byte(os.Getenv("ENCRYPTION_KEY")),
 		StateSecret:                 []byte(os.Getenv("STATE_SECRET")),
 		AnthropicAPIKey:             os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:              strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")),
 	}
 
 	if cfg.KeycardAPIBaseURL == "" {

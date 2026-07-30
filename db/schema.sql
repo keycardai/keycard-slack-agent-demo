@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     team_id TEXT NOT NULL,
     channel_id TEXT NOT NULL,
     thread_ts TEXT,
-    model TEXT DEFAULT 'claude-sonnet-5',
+    model TEXT DEFAULT 'claude-opus-5',
     created_at INTEGER DEFAULT (unixepoch()),
     updated_at INTEGER DEFAULT (unixepoch())
 );

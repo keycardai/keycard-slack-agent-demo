@@ -76,6 +76,19 @@ type Runner struct {
 	SlackActions   SlackActioner
 	BaseURL        string
 	SystemPrompt   string
+	// Model is the model the agent runs on. Empty falls back to DefaultModel.
+	Model string
+}
+
+// DefaultModel is used when none is configured. Pinning a model in code was how this ended up a
+// generation behind with no way to change it short of editing the source.
+const DefaultModel = "claude-opus-5"
+
+func (r *Runner) model() string {
+	if model := strings.TrimSpace(r.Model); model != "" {
+		return model
+	}
+	return DefaultModel
 }
 
 func NewRunner(dbClient *db.DB, client *anthropic.Client, systemPrompt string) *Runner {
@@ -208,7 +221,7 @@ func (r *Runner) callAnthropicWithRetry(ctx context.Context, systemPrompt string
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		callCtx, cancel := context.WithTimeout(ctx, LLMCallTimeout)
 		resp, err := r.Client.Messages.New(callCtx, anthropic.MessageNewParams{
-			Model:     anthropic.ModelClaudeOpus4_5,
+			Model:     anthropic.Model(r.model()),
 			MaxTokens: LLMMaxTokens,
 			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
 			Messages:  messages,

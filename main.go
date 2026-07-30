@@ -76,6 +76,7 @@ func main() {
 		&anthropicClient,
 		prompts.System,
 	)
+	agentRunner.Model = cfg.AnthropicModel
 
 	agentRunner.Discovery = discovery.NewService(
 		cfg.KeycardZoneID,
