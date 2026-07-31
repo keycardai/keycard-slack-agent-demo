@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/config"
-	"github.com/keycardai/slack-agent/db"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/config"
+	"github.com/keycardai/keycard-slack-agent-demo/db"
 )
 
 type SlackNotifier interface {

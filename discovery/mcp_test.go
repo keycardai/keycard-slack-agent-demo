@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
 func TestSelectMCPCandidatesFiltersResourcesByIdentifierHeuristic(t *testing.T) {

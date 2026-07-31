@@ -15,9 +15,9 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/db"
-	"github.com/keycardai/slack-agent/discovery"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/db"
+	"github.com/keycardai/keycard-slack-agent-demo/discovery"
 )
 
 type AgentEvent struct {

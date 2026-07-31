@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
 func TestCollectPagesWalksEveryPage(t *testing.T) {

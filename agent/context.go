@@ -8,8 +8,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/prompts"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/prompts"
 )
 
 func BuildMessages(reqCtx *app.RequestContext, history []app.StoredMessage, userMessage string, tools []ToolSpec, systemTemplate string) ([]anthropic.MessageParam, string) {

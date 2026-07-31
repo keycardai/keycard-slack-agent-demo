@@ -1,4 +1,4 @@
-module github.com/keycardai/slack-agent
+module github.com/keycardai/keycard-slack-agent-demo
 
 go 1.24
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/keycardai/slack-agent/crypto"
+	"github.com/keycardai/keycard-slack-agent-demo/crypto"
 )
 
 func openAt(t *testing.T, name string) *DB {

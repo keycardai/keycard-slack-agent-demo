@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/discovery"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/discovery"
 )
 
 func TestDiscoveredMCPServersFiltersInventory(t *testing.T) {

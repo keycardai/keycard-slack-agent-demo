@@ -12,11 +12,11 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/slack-go/slack"
 
-	"github.com/keycardai/slack-agent/agent"
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/config"
-	"github.com/keycardai/slack-agent/db"
-	"github.com/keycardai/slack-agent/oauth"
+	"github.com/keycardai/keycard-slack-agent-demo/agent"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/config"
+	"github.com/keycardai/keycard-slack-agent-demo/db"
+	"github.com/keycardai/keycard-slack-agent-demo/oauth"
 )
 
 const keycardConsentPrompt = "keycard_consent_link"
@@ -418,10 +418,6 @@ func classifyChat(channelID, channelType string) (string, bool) {
 		return "private", true
 	}
 	return "public", false
-}
-
-func (h *Handler) HandleSlashCommand(cmd slack.SlashCommand) {
-	_, _ = h.sendMessage(cmd.ChannelID, "Slash commands are not supported.", "")
 }
 
 func (h *Handler) sendLinkPrompt(channelID, userID, teamID, threadTS string) {

@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/config"
-	"github.com/keycardai/slack-agent/crypto"
-	"github.com/keycardai/slack-agent/db"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/config"
+	"github.com/keycardai/keycard-slack-agent-demo/crypto"
+	"github.com/keycardai/keycard-slack-agent-demo/db"
 )
 
 func TestHandlerStartCarriesRequestedResourcesThroughState(t *testing.T) {

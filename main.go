@@ -15,14 +15,14 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/slack-go/slack"
 
-	"github.com/keycardai/slack-agent/agent"
-	"github.com/keycardai/slack-agent/config"
-	"github.com/keycardai/slack-agent/crypto"
-	"github.com/keycardai/slack-agent/db"
-	"github.com/keycardai/slack-agent/discovery"
-	"github.com/keycardai/slack-agent/oauth"
-	"github.com/keycardai/slack-agent/prompts"
-	"github.com/keycardai/slack-agent/slackapp"
+	"github.com/keycardai/keycard-slack-agent-demo/agent"
+	"github.com/keycardai/keycard-slack-agent-demo/config"
+	"github.com/keycardai/keycard-slack-agent-demo/crypto"
+	"github.com/keycardai/keycard-slack-agent-demo/db"
+	"github.com/keycardai/keycard-slack-agent-demo/discovery"
+	"github.com/keycardai/keycard-slack-agent-demo/oauth"
+	"github.com/keycardai/keycard-slack-agent-demo/prompts"
+	"github.com/keycardai/keycard-slack-agent-demo/slackapp"
 )
 
 func main() {

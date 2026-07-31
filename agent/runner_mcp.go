@@ -12,10 +12,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/discovery"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/discovery"
 )
 
 type AuthToolRef struct {

@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/keycardai/slack-agent/app"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
 func (r *Runner) sendReauthLink(ctx context.Context, reqCtx *app.RequestContext, resources []string, destination, channel, threadTS string, allowExternal bool) ToolResult {

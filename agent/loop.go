@@ -10,7 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/keycardai/slack-agent/app"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
 type loopContext struct {

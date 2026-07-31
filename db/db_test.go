@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/keycardai/slack-agent/crypto"
+	"github.com/keycardai/keycard-slack-agent-demo/crypto"
 )
 
 func TestAuthPromptSent(t *testing.T) {

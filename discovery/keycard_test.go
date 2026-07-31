@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
 func TestServiceListInventoryPaginatesApplicationsResourcesAndDependencies(t *testing.T) {

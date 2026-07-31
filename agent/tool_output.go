@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/keycardai/slack-agent/app"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
 const toolOutputChunkSize = 5000

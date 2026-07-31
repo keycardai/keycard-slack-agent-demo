@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/keycardai/slack-agent/app"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
 func TestRenderTemplate(t *testing.T) {

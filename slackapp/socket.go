@@ -53,13 +53,6 @@ func (s *Service) handleEvents() {
 				go s.Handler.HandleMessage(teamID, ev.User, ev.Channel, ev.ChannelType, ev.Text, ev.ThreadTimeStamp, ev.TimeStamp)
 			}
 
-		case socketmode.EventTypeSlashCommand:
-			cmd, ok := evt.Data.(slack.SlashCommand)
-			if !ok {
-				continue
-			}
-			s.Socket.Ack(*evt.Request)
-			go s.Handler.HandleSlashCommand(cmd)
 		}
 	}
 }

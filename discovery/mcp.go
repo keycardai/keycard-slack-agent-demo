@@ -3,7 +3,7 @@ package discovery
 import (
 	"strings"
 
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
 type MCPCandidate struct {
@@ -18,7 +18,7 @@ func SelectMCPCandidates(inventory []ApplicationInventory) []MCPCandidate {
 	for _, application := range inventory {
 		hasTrait := applicationHasTrait(application.Application, keycard.ApplicationTraitMcpProvider)
 		for _, resource := range application.Resources {
-			if !resourceLooksLikeMCPIdentifier(resource.Identifier) {
+			if !exposeAsMCP(application.Application, resource, hasTrait) {
 				continue
 			}
 			candidates = append(candidates, MCPCandidate{
@@ -54,13 +54,33 @@ func dependenciesForResource(dependencies []keycard.Resource, resourceID string)
 	return matched
 }
 
+// exposeAsMCP decides whether one resource is offered to the model as a tool.
+//
+// Two questions, at two levels, and only one of them has an API field. "Does this application serve
+// MCP" is the mcp-provider trait. "Is this particular resource the MCP-facing one" has no field at
+// all, because an MCP-provider application also provides ordinary resources: a github app provides
+// github-api alongside mcp-github, and only the latter is a tool. That gap is what the identifier
+// heuristic is standing in for, and it cannot be replaced by the trait.
+//
+// Both are required. The heuristic alone meant a resource called urn:acme:mcpayments was exposed
+// even though nothing about its application claimed to serve MCP, and the trait was computed,
+// threaded through the candidate, and only ever passed to a log line.
+//
+// An application declaring no traits at all falls back to the heuristic alone, since that is a zone
+// registered before traits existed and requiring the trait there would silently empty its tool list.
+func exposeAsMCP(application keycard.Application, resource keycard.Resource, hasTrait bool) bool {
+	if !resourceLooksLikeMCPIdentifier(resource.Identifier) {
+		return false
+	}
+	if len(application.Traits) == 0 {
+		return true
+	}
+	return hasTrait
+}
+
+// resourceLooksLikeMCPIdentifier stands in for the missing per-resource contract. Replace it when
+// Keycard exposes a field that names the MCP-facing resource, not when a new application trait
+// appears: the trait answers a different question. See exposeAsMCP.
 func resourceLooksLikeMCPIdentifier(identifier string) bool {
-	// Temporary migration hack:
-	//
-	// We do not yet have a stable typed contract from Keycard discovery that tells
-	// “this resource is the MCP-facing one to expose”. The current plan is
-	// to centralize the stopgap rule here so the rest of the runtime does not bake
-	// in ad hoc string checks. Once Keycard exposes a real MCP-specific contract we
-	// trust, replace this helper instead of spreading fallback logic around.
 	return strings.Contains(strings.ToLower(strings.TrimSpace(identifier)), "mcp")
 }

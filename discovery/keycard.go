@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	keycard "github.com/keycardai/slack-agent/keycardapi"
+	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
 type ApplicationInventory struct {

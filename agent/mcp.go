@@ -18,7 +18,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/keycardai/slack-agent/app"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
 type MCPServer struct {

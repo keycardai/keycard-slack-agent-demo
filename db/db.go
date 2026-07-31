@@ -12,8 +12,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/keycardai/slack-agent/app"
-	"github.com/keycardai/slack-agent/crypto"
+	"github.com/keycardai/keycard-slack-agent-demo/app"
+	"github.com/keycardai/keycard-slack-agent-demo/crypto"
 )
 
 type DB struct {
@@ -33,7 +33,6 @@ type Session struct {
 	TeamID    string
 	ChannelID string
 	ThreadTS  string
-	Model     string
 }
 
 type SessionIndex struct {
@@ -183,12 +182,12 @@ func (d *DB) GetOrCreateSession(sessionID, teamID, channelID, threadTS string) (
 	}
 
 	row := d.conn.QueryRow(`
-		SELECT id, team_id, channel_id, COALESCE(thread_ts, ''), model
+		SELECT id, team_id, channel_id, COALESCE(thread_ts, '')
 		FROM sessions WHERE id = ?
 	`, sessionID)
 
 	var sess Session
-	if err := row.Scan(&sess.ID, &sess.TeamID, &sess.ChannelID, &sess.ThreadTS, &sess.Model); err != nil {
+	if err := row.Scan(&sess.ID, &sess.TeamID, &sess.ChannelID, &sess.ThreadTS); err != nil {
 		return nil, err
 	}
 	return &sess, nil
