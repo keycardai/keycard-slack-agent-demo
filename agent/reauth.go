@@ -8,7 +8,7 @@ import (
 	"github.com/keycardai/keycard-slack-agent-demo/app"
 )
 
-func (r *Runner) sendReauthLink(ctx context.Context, reqCtx *app.RequestContext, resources []string, destination, channel, threadTS string, allowExternal bool) ToolResult {
+func (r *Runner) sendReauthLink(ctx context.Context, reqCtx *app.RequestContext, resources []string, destination, channel, threadTS string) ToolResult {
 	if r.SlackActions == nil {
 		return ToolResult{Content: "slack actions not configured", IsError: true}
 	}
@@ -38,8 +38,8 @@ func (r *Runner) sendReauthLink(ctx context.Context, reqCtx *app.RequestContext,
 	if channel == "" {
 		channel = reqCtx.ChannelID
 	}
-	if channel != reqCtx.ChannelID && !allowExternal {
-		return ToolResult{Content: "external channel requires allow_external=true", IsError: true}
+	if channel != reqCtx.ChannelID {
+		return ToolResult{Content: "can only post in the channel the request came from", IsError: true}
 	}
 	if threadTS == "" {
 		threadTS = reqCtx.ThreadTS

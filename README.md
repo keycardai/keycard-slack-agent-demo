@@ -2,7 +2,9 @@
 
 A Slack agent where the principal is chosen per request.
 
-Most Slack agents hold one credential set for the whole channel. Anyone in the room gets the same reach, and the audit log records the bot rather than the person. This one authenticates as itself and then, when a person is in the loop, exchanges that person's session for a short-lived credential scoped to them. The agent holds no standing access to anything downstream.
+Most Slack agents hold one credential set for the whole channel. Anyone in the room gets the same reach, and the audit log records the bot rather than the person.
+
+This one authenticates as itself, then exchanges the asking person's session for a short-lived credential scoped to them. It holds no standing access to anything it reads on your behalf. The write back to Slack is still an install-time bot token, which is the next thing to fix and is called out below.
 
 It is a reference implementation, not a product. The interesting parts are small and marked in the code.
 
@@ -12,7 +14,9 @@ It is a reference implementation, not a product. The interesting parts are small
 
 **A missing authorization goes to a DM.** When the exchange comes back needing consent, the agent sends the consent link privately rather than posting it in the channel. "Connect your Snowflake account" in a shared room tells everyone who lacks access, and it invites the wrong person to click it. See `sendReauthLink` in [`agent/reauth.go`](agent/reauth.go).
 
-Two smaller guards follow the same instinct. A DM cannot be used to write into a channel it was not asked from, and posting anywhere other than where the question arrived takes an explicit flag.
+Two smaller guards follow the same instinct. A DM cannot be used to write into a channel it was not asked from, and the agent can only write in the conversation the request came from.
+
+Both are read off the request, never off the model's tool call. That distinction is the whole point of them. An earlier version let the model waive the destination guard with an `allow_external` flag and name a DM recipient itself, which made both of them suggestions to the component they existed to constrain. If you take one idea from this repo, take that one: a guard the model can set is not a guard.
 
 ### One thing to know before you deploy it
 
@@ -80,7 +84,7 @@ That pairing is not optional. An application may only exchange tokens addressed 
 ## Tests
 
 ```bash
-go test ./...                  # 155 tests, no network, no API key
+go test ./...                  # 162 tests, no network, no API key
 go vet ./...
 ```
 

@@ -262,7 +262,7 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		return ToolResult{Content: result}
 	}
 	if ref, ok := authTools[toolName]; ok {
-		return r.sendReauthLink(ctx, reqCtx, []string{ref.Resource}, "auto", "", "", false)
+		return r.sendReauthLink(ctx, reqCtx, []string{ref.Resource}, "auto", "", "")
 	}
 	switch toolName {
 	case ToolSlackAction:
@@ -275,20 +275,16 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		if channel == "" {
 			channel = reqCtx.ChannelID
 		}
-		allowExternal := false
-		if value, ok := input["allow_external"].(bool); ok {
-			allowExternal = value
-		}
 		logSlackAction(reqCtx.SessionID, action, input, channel)
 		if action == "dm" {
 			text, _ := input["text"].(string)
 			if strings.TrimSpace(text) == "" {
 				return ToolResult{Content: "missing text", IsError: true}
 			}
-			userID, _ := input["user_id"].(string)
-			if strings.TrimSpace(userID) == "" {
-				userID = reqCtx.UserID
-			}
+			// The recipient is the person who asked, always. It used to come from the tool
+			// input, so a fooled model could DM its answer to someone who never asked for it,
+			// which is the disclosure problem with a smaller audience rather than a fix for it.
+			userID := reqCtx.UserID
 			dmID, err := r.SlackActions.OpenDM(ctx, userID)
 			if err != nil || dmID == "" {
 				log.Printf("slack_action failed: session=%s action=dm user=%s err=%v", reqCtx.SessionID, userID, err)
@@ -306,8 +302,10 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		if reqCtx.IsPrivate && channel != reqCtx.ChannelID {
 			return ToolResult{Content: "cannot target other channels from a DM", IsError: true}
 		}
-		if channel != reqCtx.ChannelID && !allowExternal {
-			return ToolResult{Content: "external channel requires allow_external=true", IsError: true}
+		// Answer where you were asked. This used to be waivable by an allow_external flag in the
+		// tool input, so the guard was only as trustworthy as the model it was guarding against.
+		if channel != reqCtx.ChannelID {
+			return ToolResult{Content: "can only act in the channel the request came from", IsError: true}
 		}
 		switch action {
 		case "send":
@@ -377,11 +375,7 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		channel = strings.TrimSpace(channel)
 		threadTS, _ := input["thread_ts"].(string)
 		threadTS = strings.TrimSpace(threadTS)
-		allowExternal := false
-		if value, ok := input["allow_external"].(bool); ok {
-			allowExternal = value
-		}
-		return r.sendReauthLink(ctx, reqCtx, resources, destination, channel, threadTS, allowExternal)
+		return r.sendReauthLink(ctx, reqCtx, resources, destination, channel, threadTS)
 	default:
 		return ToolResult{Content: "unknown tool", IsError: true}
 	}
@@ -536,9 +530,8 @@ func logSlackAction(sessionID, action string, input map[string]any, channel stri
 	reaction, _ := input["reaction"].(string)
 	text, _ := input["text"].(string)
 	userID, _ := input["user_id"].(string)
-	allowExternal, _ := input["allow_external"].(bool)
 	log.Printf(
-		"slack_action call: session=%s action=%s channel=%s thread_ts=%s ts=%s reaction=%s user_id=%s text_len=%d allow_external=%t",
+		"slack_action call: session=%s action=%s channel=%s thread_ts=%s ts=%s reaction=%s user_id=%s text_len=%d",
 		sessionID,
 		action,
 		channel,
@@ -547,7 +540,6 @@ func logSlackAction(sessionID, action string, input map[string]any, channel stri
 		reaction,
 		userID,
 		len(text),
-		allowExternal,
 	)
 }
 
