@@ -51,6 +51,18 @@ func (s *Service) handleEvents() {
 					continue
 				}
 				go s.Handler.HandleMessage(teamID, ev.User, ev.Channel, ev.ChannelType, ev.Text, ev.ThreadTimeStamp, ev.TimeStamp)
+
+			case *slackevents.UserChangeEvent:
+				// Deactivation is the only revocation signal Slack gives us for one person.
+				if ev.User.Deleted {
+					go s.Handler.HandleUserDeactivated(teamID, ev.User.ID)
+				}
+
+			case *slackevents.TokensRevokedEvent:
+				go s.Handler.HandleWorkspaceRevoked(teamID, "tokens_revoked")
+
+			case *slackevents.AppUninstalledEvent:
+				go s.Handler.HandleWorkspaceRevoked(teamID, "app_uninstalled")
 			}
 
 		}

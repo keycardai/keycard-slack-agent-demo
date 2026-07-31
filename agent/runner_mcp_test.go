@@ -235,7 +235,8 @@ func TestBuildAuthorizeToolsKeepsNamesDistinct(t *testing.T) {
 
 func TestExecuteToolUsesAuthorizeToolRef(t *testing.T) {
 	slack := &recordingSlackActions{dmID: "D123", postTS: "1.23"}
-	runner := &Runner{SlackActions: slack, BaseURL: "https://fobless.example.com"}
+	signer := &stubLinkSigner{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: signer}
 	reqCtx := &app.RequestContext{TeamID: "T1", UserID: "U1", ChannelID: "C1", ThreadTS: "thread-1", SessionID: "session-1"}
 	authTools := map[string]AuthToolRef{
 		"authorize_github": {Resource: "https://github-zone.mcp.gateway.context.cloud/mcp"},
@@ -251,14 +252,22 @@ func TestExecuteToolUsesAuthorizeToolRef(t *testing.T) {
 	if len(slack.posts) != 1 {
 		t.Fatalf("expected one slack post, got %+v", slack.posts)
 	}
-	if !strings.Contains(slack.posts[0].text, "resource=") {
-		t.Fatalf("expected consent link in dm, got %+v", slack.posts[0])
+	// The requested resource travels inside the signature now, not in the URL.
+	if !strings.Contains(slack.posts[0].text, "t=") {
+		t.Fatalf("expected a signed consent link in the dm, got %+v", slack.posts[0])
+	}
+	if len(signer.signed) != 1 {
+		t.Fatalf("expected one signing call, got %+v", signer.signed)
+	}
+	if signer.signed[0] != "T1|U1|C1|https://github-zone.mcp.gateway.context.cloud/mcp" {
+		t.Fatalf("the signed request did not match the requesting user: %q", signer.signed[0])
 	}
 }
 
 func TestExecuteToolAuthorizeResourceSupportsMultipleResources(t *testing.T) {
 	slack := &recordingSlackActions{dmID: "D123", postTS: "1.23"}
-	runner := &Runner{SlackActions: slack, BaseURL: "https://fobless.example.com"}
+	signer := &stubLinkSigner{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: signer}
 	reqCtx := &app.RequestContext{TeamID: "T1", UserID: "U1", ChannelID: "C1", ThreadTS: "thread-1", SessionID: "session-1"}
 	input := map[string]any{"resources": []any{"https://api.github.com", "https://api.linear.app"}}
 
@@ -269,8 +278,14 @@ func TestExecuteToolAuthorizeResourceSupportsMultipleResources(t *testing.T) {
 	if len(slack.posts) != 1 {
 		t.Fatalf("expected one slack post, got %+v", slack.posts)
 	}
-	if strings.Count(slack.posts[0].text, "resource=") != 2 {
-		t.Fatalf("expected batched consent link, got %+v", slack.posts[0])
+	// Batching is asserted on what was signed, since the resources are inside the signature now and
+	// no longer visible in the URL. That is the point: an appended resource parameter used to widen
+	// what the person was being asked to approve.
+	if len(signer.signed) != 1 {
+		t.Fatalf("expected one signing call, got %+v", signer.signed)
+	}
+	if signer.signed[0] != "T1|U1|C1|https://api.github.com|https://api.linear.app" {
+		t.Fatalf("unexpected signed request: %q", signer.signed[0])
 	}
 }
 
@@ -342,4 +357,18 @@ func (f *fakeResourceBroker) Exchange(_ context.Context, subjectToken, resource 
 
 func (f *fakeResourceBroker) IsInteractionRequired(err error) bool {
 	return errors.Is(err, errInteractionRequired)
+}
+
+// stubLinkSigner records what the agent asked to have signed.
+type stubLinkSigner struct {
+	signed []string
+	err    error
+}
+
+func (s *stubLinkSigner) SignLink(teamID, userID, channelID string, resources []string) (string, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	s.signed = append(s.signed, strings.Join(append([]string{teamID, userID, channelID}, resources...), "|"))
+	return "signed-token", nil
 }

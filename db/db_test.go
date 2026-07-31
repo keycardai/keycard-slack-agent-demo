@@ -10,7 +10,7 @@ import (
 
 func TestAuthPromptSent(t *testing.T) {
 
-	tmp, err := os.CreateTemp("", "fobless-db-*.db")
+	tmp, err := os.CreateTemp("", "slack-agent-db-*.db")
 	if err != nil {
 		t.Fatalf("create temp db: %v", err)
 	}

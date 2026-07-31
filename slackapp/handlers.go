@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,9 @@ type Handler struct {
 	botUserMu   sync.Mutex
 	reactionMu  sync.Mutex
 	handledKeys map[string]time.Time
+
+	// LinkSigner signs consent links so a link cannot be forged by whoever receives one.
+	LinkSigner oauth.LinkSigner
 
 	// runAgentFunc allows unit tests to observe trigger decisions without invoking the full runner.
 	runAgentFunc func(teamID, userID, channelID, channelType, text, threadTS, messageTS string)
@@ -148,7 +152,13 @@ func (h *Handler) runAgent(teamID, userID, channelID, channelType, text, threadT
 		_ = h.DB.StoreUserTokens(teamID, userID, tokens)
 	}
 	if identity == "" {
-		identity = fmt.Sprintf("%s-%s", teamID, userID)
+		// Never invent one. A synthesised "team-user" string would be accepted by everything
+		// downstream while naming nobody Keycard has heard of, which is the one failure this
+		// agent must not have.
+		log.Printf("keycard identity missing after userinfo: team=%s user=%s", teamID, userID)
+		_ = h.DB.DeleteUserTokens(teamID, userID)
+		h.sendLinkPrompt(channelID, userID, teamID, threadTS)
+		return
 	}
 
 	sessionID := app.MakeSessionID(teamID, channelID, threadTS)
@@ -421,8 +431,16 @@ func classifyChat(channelID, channelType string) (string, bool) {
 }
 
 func (h *Handler) sendLinkPrompt(channelID, userID, teamID, threadTS string) {
+	_, isPrivate := classifyChat(channelID, "")
+
+	// A person in a DM is unmistakably addressing the agent, so they get told why nothing happened.
+	// The short window only stops a burst of identical messages producing a burst of identical DMs.
+	cooldown := db.AuthPromptCooldown
+	if isPrivate {
+		cooldown = db.AuthPromptDirectCooldown
+	}
 	if h.DB != nil {
-		sent, err := h.DB.HasAuthPromptSent(teamID, userID, keycardConsentPrompt)
+		sent, err := h.DB.HasAuthPromptSentWithin(teamID, userID, keycardConsentPrompt, cooldown)
 		if err == nil && sent {
 			return
 		}
@@ -430,10 +448,22 @@ func (h *Handler) sendLinkPrompt(channelID, userID, teamID, threadTS string) {
 			log.Printf("auth prompt lookup failed: team=%s user=%s err=%v", teamID, userID, err)
 		}
 	}
-	link := fmt.Sprintf("%s/oauth/start?team=%s&user=%s&channel=%s", h.BaseURL, teamID, userID, channelID)
-	message := fmt.Sprintf("Hey! This a static message. You need to authenticate with Keycard to map this Slack account to a Keycard identity and confirm you can access Fobless. Start here: %s", link)
+	if h.LinkSigner == nil {
+		log.Printf("consent prompt skipped: team=%s user=%s reason=no_signer", teamID, userID)
+		return
+	}
+	signed, err := h.LinkSigner.SignLink(oauth.LinkRequest{TeamID: teamID, UserID: userID, ChannelID: channelID})
+	if err != nil {
+		log.Printf("consent link signing failed: team=%s user=%s err=%v", teamID, userID, err)
+		return
+	}
+	link := fmt.Sprintf("%s/oauth/start?t=%s", h.BaseURL, url.QueryEscape(signed))
+	message := fmt.Sprintf(
+		"Before I can do anything for you I need to know who you are in Keycard, so I can act with "+
+			"your access rather than my own. Connect your account here: %s",
+		link,
+	)
 	sent := false
-	_, isPrivate := classifyChat(channelID, "")
 	if isPrivate {
 		if ts, err := h.sendMessage(channelID, message, threadTS); err == nil && ts != "" {
 			sent = true
@@ -793,4 +823,33 @@ func truncateLog(value string, max int) string {
 		return trimmed
 	}
 	return trimmed[:max] + "…"
+}
+
+// HandleUserDeactivated forgets a person's stored session when Slack says their account is gone.
+//
+// Holding a Keycard refresh token for a deactivated account is the standing credential this whole
+// design exists to avoid, and nothing else in the system would ever clean it up.
+func (h *Handler) HandleUserDeactivated(teamID, userID string) {
+	if h.DB == nil || teamID == "" || userID == "" {
+		return
+	}
+	if err := h.DB.DeleteUserTokens(teamID, userID); err != nil {
+		log.Printf("deactivation cleanup failed: team=%s user=%s err=%v", teamID, userID, err)
+		return
+	}
+	log.Printf("deactivation cleanup: team=%s user=%s", teamID, userID)
+}
+
+// HandleWorkspaceRevoked forgets every stored session for a workspace, on uninstall or token
+// revocation. Both mean we have lost the right to hold them.
+func (h *Handler) HandleWorkspaceRevoked(teamID, reason string) {
+	if h.DB == nil || teamID == "" {
+		return
+	}
+	removed, err := h.DB.DeleteTeamTokens(teamID)
+	if err != nil {
+		log.Printf("workspace revocation cleanup failed: team=%s reason=%s err=%v", teamID, reason, err)
+		return
+	}
+	log.Printf("workspace revocation cleanup: team=%s reason=%s sessions_removed=%d", teamID, reason, removed)
 }

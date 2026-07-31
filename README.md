@@ -28,6 +28,16 @@ Everything in a shared channel was written by whoever is in the channel. So the 
 
 What limits the damage is not the prompt. The credential the agent holds during that turn belongs to the person who asked and expires in minutes, so a successful injection reaches one person's access rather than the organization's. If you narrow one thing before running this in a real workspace, narrow this.
 
+### The consent link is signed
+
+The link that starts the OAuth flow carries one opaque signed token, and `/oauth/start` will not act on anything else.
+
+It matters more than it looks. An earlier version took the target Slack user as a query parameter, so anyone who could reach the public base URL could craft a link naming somebody else. Send a colleague a link that legitimately came from the agent's own domain, they log in, and their Keycard access is now bound to your Slack account. The audit trail would name them for everything you then did.
+
+The requested resources are inside the signature for the same reason. Appending a `resource` parameter would otherwise widen what the person is being asked to approve. Links expire after fifteen minutes.
+
+If you take one thing from this repo for your own agent, take this and the guard note above. Both are cases where the thing that looked like a control was an input.
+
 ### Which resources become tools
 
 Two conditions have to hold. The application declares the `mcp-provider` trait, and the resource identifier looks MCP-facing, which currently means it contains `mcp`.
@@ -55,6 +65,16 @@ Being explicit, because these are the parts people assume are handled.
 - **The Slack write is not brokered.** Posting back uses the app's install-time bot token, the same for every user, while every read goes through a per-request exchange.
 - **It does not detect a misleading request.** Scoping the credential limits what a fooled model reaches. It does not tell you whether the instruction was honest.
 
+## Revocation
+
+Three paths, because per-user binding means there is no single identity to switch off.
+
+- **A person is deactivated.** `user_change` with `deleted` set drops that person's stored session and their prompt suppression.
+- **The app is uninstalled, or its tokens are revoked.** Every stored session for that workspace goes.
+- **A person's identity stops resolving.** If Keycard no longer returns a subject for a stored session, the session is deleted and they are asked to connect again.
+
+Being straight about the trade, since it is the honest cost of this model. One agent identity is a single thing to revoke. Per-user binding is a grant per person per resource, and revoking upstream access in Keycard is a separate act from what happens here. What you get for that is a compromise bounded to one person and an audit trail that names them.
+
 ## Running it
 
 Requires Go 1.24 and a Keycard zone.
@@ -71,9 +91,12 @@ Bot scopes, matched to the calls the agent actually makes:
 - `chat:write` to post, edit, and delete
 - `im:write` to open a DM, which the consent flow depends on
 - `reactions:write` for the react action
+- `users:read` to receive `user_change`, which is how a deactivation reaches the agent
 - `channels:history`, `groups:history`, `im:history`, `mpim:history` for wherever you want it to work, covering both the message events and reading a thread for context
 
 Event subscriptions are message events rather than `app_mention`, because the agent decides for itself whether a message is addressed to it. Subscribe to `message.im` plus whichever of `message.channels`, `message.groups`, and `message.mpim` you need. No slash commands, so no `commands` scope.
+
+Also subscribe to `user_change`, `tokens_revoked`, and `app_uninstalled`. Those are the revocation signals, and without them the agent keeps refresh tokens for people and workspaces it has no business holding.
 
 **Keycard zone.** Register the agent as an application with a client secret, and give it a small resource of its own that it provides.
 
@@ -84,7 +107,7 @@ That pairing is not optional. An application may only exchange tokens addressed 
 ## Tests
 
 ```bash
-go test ./...                  # 162 tests, no network, no API key
+go test ./...                  # 164 tests, no network, no API key
 go vet ./...
 ```
 

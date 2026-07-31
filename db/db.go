@@ -159,8 +159,31 @@ func (d *DB) GetUserTokens(teamID, userID string) (*UserTokens, error) {
 }
 
 func (d *DB) DeleteUserTokens(teamID, userID string) error {
-	_, err := d.conn.Exec(`DELETE FROM users WHERE team_id = ? AND user_id = ?`, teamID, userID)
-	return err
+	if teamID == "" || userID == "" {
+		return errors.New("team_id and user_id required")
+	}
+	if _, err := d.conn.Exec(`DELETE FROM users WHERE team_id = ? AND user_id = ?`, teamID, userID); err != nil {
+		return err
+	}
+	// Drop the prompt suppression too, so the next time they speak to the agent they are told they
+	// need to connect rather than met with silence.
+	return d.ClearAuthPrompts(teamID, userID)
+}
+
+// DeleteTeamTokens removes every stored session for one workspace. Used when the app is uninstalled
+// or its tokens are revoked, which is the moment we lose the right to hold them.
+func (d *DB) DeleteTeamTokens(teamID string) (int64, error) {
+	if teamID == "" {
+		return 0, errors.New("team_id required")
+	}
+	result, err := d.conn.Exec(`DELETE FROM users WHERE team_id = ?`, teamID)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := d.conn.Exec(`DELETE FROM auth_prompts WHERE team_id = ?`, teamID); err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (d *DB) SessionExists(sessionID string) (bool, error) {
@@ -252,14 +275,28 @@ func (d *DB) GetContext(sessionID string) ([]app.StoredMessage, error) {
 	return messages, nil
 }
 
-// AuthPromptCooldown is how long a "connect your account" prompt suppresses the next one.
+// Cooldowns on the "connect your account" prompt.
 //
 // The suppression used to be permanent. sent_at was recorded and never read, so a person who
 // ignored the prompt once was never prompted again, and every later message did nothing with no
-// feedback. Suppression exists to avoid nagging inside one conversation, not to give up on someone.
-const AuthPromptCooldown = 24 * time.Hour
+// feedback. Suppression exists to avoid nagging, not to give up on someone.
+//
+// Two windows, because the two situations are not alike. Someone in a DM with the agent, or
+// @-mentioning it, is unmistakably talking to it and is owed an answer, so their window exists only
+// to stop a burst of identical messages producing a burst of identical DMs. An unprompted nudge
+// about a channel conversation is closer to nagging a room.
+const (
+	AuthPromptCooldown       = 24 * time.Hour
+	AuthPromptDirectCooldown = 2 * time.Minute
+)
 
+// HasAuthPromptSent reports whether a prompt was sent inside the default cooldown.
 func (d *DB) HasAuthPromptSent(teamID, userID, prompt string) (bool, error) {
+	return d.HasAuthPromptSentWithin(teamID, userID, prompt, AuthPromptCooldown)
+}
+
+// HasAuthPromptSentWithin reports whether a prompt was sent inside the given window.
+func (d *DB) HasAuthPromptSentWithin(teamID, userID, prompt string, window time.Duration) (bool, error) {
 	if teamID == "" || userID == "" || prompt == "" {
 		return false, nil
 	}
@@ -273,7 +310,7 @@ func (d *DB) HasAuthPromptSent(teamID, userID, prompt string) (bool, error) {
 		}
 		return false, err
 	}
-	return time.Now().Before(time.Unix(sentAt, 0).Add(AuthPromptCooldown)), nil
+	return time.Now().Before(time.Unix(sentAt, 0).Add(window)), nil
 }
 
 // ClearAuthPrompts drops a user's prompt suppression. Called once they have linked, so a later

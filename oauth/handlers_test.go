@@ -34,7 +34,16 @@ func TestHandlerStartCarriesRequestedResourcesThroughState(t *testing.T) {
 		Signer: signer,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/oauth/start?team=T1&user=U1&channel=C1&resource=https://api.github.com&resource=https://api.linear.app", nil)
+	token, err := signer.SignLink(LinkRequest{
+		TeamID:    "T1",
+		UserID:    "U1",
+		ChannelID: "C1",
+		Resources: []string{"https://api.github.com", "https://api.linear.app"},
+	})
+	if err != nil {
+		t.Fatalf("sign link: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/oauth/start?t="+url.QueryEscape(token), nil)
 	res := httptest.NewRecorder()
 
 	handler.Start(res, req)

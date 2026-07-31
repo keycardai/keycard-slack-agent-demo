@@ -39,16 +39,20 @@ type Handler struct {
 }
 
 func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
-	team := r.URL.Query().Get("team")
-	user := r.URL.Query().Get("user")
-	channel := r.URL.Query().Get("channel")
-	if team == "" || user == "" {
-		http.Error(w, "missing team or user", http.StatusBadRequest)
+	// Everything that shapes this consent request has to come from the signed token. When the target
+	// Slack user was a plain query parameter, a crafted link bound the clicker's Keycard identity to
+	// somebody else's Slack account. See SignLink.
+	linkReq, err := h.Signer.VerifyLink(r.URL.Query().Get("t"))
+	if err != nil {
+		http.Error(w, "this link is not valid or has expired, ask the agent for a new one", http.StatusBadRequest)
 		return
 	}
+	team := linkReq.TeamID
+	user := linkReq.UserID
+	channel := linkReq.ChannelID
 
 	codeVerifier := newCodeVerifier()
-	resources := mergeAuthResources(h.Config.KeycardResource, r.URL.Query()["resource"]...)
+	resources := mergeAuthResources(h.Config.KeycardResource, linkReq.Resources...)
 	encodedResources, err := encodeStateResources(resources)
 	if err != nil {
 		http.Error(w, "state signing failed", http.StatusInternalServerError)

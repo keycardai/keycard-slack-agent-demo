@@ -16,7 +16,16 @@ func (r *Runner) sendReauthLink(ctx context.Context, reqCtx *app.RequestContext,
 	if len(resources) == 0 {
 		return ToolResult{Content: "missing resource", IsError: true}
 	}
-	link := buildConsentURL(r.BaseURL, reqCtx.TeamID, reqCtx.UserID, reqCtx.ChannelID, resources...)
+	if r.LinkSigner == nil {
+		log.Printf("consent link unavailable: session=%s reason=no_signer", reqCtx.SessionID)
+		return ToolResult{Content: "consent links are not configured", IsError: true}
+	}
+	signed, err := r.LinkSigner.SignLink(reqCtx.TeamID, reqCtx.UserID, reqCtx.ChannelID, resources)
+	if err != nil {
+		log.Printf("consent link signing failed: session=%s err=%v", reqCtx.SessionID, err)
+		return ToolResult{Content: "failed to build consent link", IsError: true}
+	}
+	link := buildConsentURL(r.BaseURL, signed)
 	if link == "" {
 		return ToolResult{Content: "failed to build consent link", IsError: true}
 	}

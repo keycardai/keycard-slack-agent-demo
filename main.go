@@ -63,10 +63,14 @@ func main() {
 		slack.OptionAppLevelToken(cfg.SlackAppToken),
 	)
 
+	// One signer mints consent links and verifies them, so a link the agent did not create cannot
+	// be redeemed.
+	stateSigner := oauth.NewStateSigner(cfg.StateSecret)
+
 	oauthHandler := &oauth.Handler{
 		Config:       cfg,
 		DB:           database,
-		Signer:       oauth.NewStateSigner(cfg.StateSecret),
+		Signer:       stateSigner,
 		Client:       keycardClient,
 		SlackActions: &slackapp.ActionClient{Slack: slackClient},
 	}
@@ -77,6 +81,7 @@ func main() {
 		prompts.System,
 	)
 	agentRunner.Model = cfg.AnthropicModel
+	agentRunner.LinkSigner = agentLinkSigner{stateSigner}
 
 	agentRunner.Discovery = discovery.NewService(
 		cfg.KeycardZoneID,
@@ -94,6 +99,7 @@ func main() {
 	oauthHandler.Onboarder = agentRunner
 
 	slackHandler := slackapp.NewHandler(cfg, database, agentRunner, keycardClient, slackClient, cfg.BaseURL)
+	slackHandler.LinkSigner = stateSigner
 
 	slackService := slackapp.NewService(slackClient, slackHandler)
 
@@ -188,4 +194,19 @@ func loadEnvFile(path string, override bool) error {
 		log.Printf("env loaded: %s (%d keys)", path, loaded)
 	}
 	return nil
+}
+
+// agentLinkSigner adapts the OAuth state signer to the narrower interface the agent package declares,
+// so the agent does not need to know the shape of an OAuth link request.
+type agentLinkSigner struct {
+	signer *oauth.StateSigner
+}
+
+func (a agentLinkSigner) SignLink(teamID, userID, channelID string, resources []string) (string, error) {
+	return a.signer.SignLink(oauth.LinkRequest{
+		TeamID:    teamID,
+		UserID:    userID,
+		ChannelID: channelID,
+		Resources: resources,
+	})
 }

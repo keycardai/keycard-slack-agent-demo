@@ -76,8 +76,16 @@ type Runner struct {
 	SlackActions   SlackActioner
 	BaseURL        string
 	SystemPrompt   string
+	// LinkSigner signs consent links. Without one the agent cannot hand out a link at all, which is
+	// the correct failure: an unsigned link is one anybody can forge.
+	LinkSigner LinkSigner
 	// Model is the model the agent runs on. Empty falls back to DefaultModel.
 	Model string
+}
+
+// LinkSigner mints the signed component of a consent URL.
+type LinkSigner interface {
+	SignLink(teamID, userID, channelID string, resources []string) (string, error)
 }
 
 // DefaultModel is used when none is configured. Pinning a model in code was how this ended up a
@@ -399,30 +407,20 @@ func buildInputSchema(schema map[string]any) anthropic.ToolInputSchemaParam {
 	}
 }
 
-func buildConsentURL(baseURL, teamID, userID, channelID string, resources ...string) string {
+// buildConsentURL puts a signed consent token on the start endpoint. The token carries the user,
+// the channel, and the requested resources, so nothing about the request is expressible in the URL
+// itself.
+func buildConsentURL(baseURL, signedToken string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if trimmed == "" {
+	if trimmed == "" || strings.TrimSpace(signedToken) == "" {
 		return ""
 	}
+	query := url.Values{"t": {signedToken}}
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		query := url.Values{}
-		query.Set("team", teamID)
-		query.Set("user", userID)
-		query.Set("channel", channelID)
-		for _, resource := range uniqueResources(resources) {
-			query.Add("resource", resource)
-		}
 		return fmt.Sprintf("%s/oauth/start?%s", trimmed, query.Encode())
 	}
 	u.Path = "/oauth/start"
-	query := u.Query()
-	query.Set("team", teamID)
-	query.Set("user", userID)
-	query.Set("channel", channelID)
-	for _, resource := range uniqueResources(resources) {
-		query.Add("resource", resource)
-	}
 	u.RawQuery = query.Encode()
 	return u.String()
 }
