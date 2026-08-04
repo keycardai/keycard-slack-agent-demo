@@ -46,9 +46,9 @@ Keycard defines an application's dependencies as its reach. Every destination it
 
 The identifier check remains because a dependency list holds whatever the agent reaches, including plain APIs and vault secrets. Nothing in the inventory says which entries speak MCP. It is a much smaller job than it was: the worst it can do now is offer a tool for a non-MCP dependency, which fails at connect rather than reaching anything unintended.
 
-**This replaces a rule that a live run proved wrong.** Discovery used to walk every application in the zone and scan the resources each one *provided*. A third-party API is registered as a resource provided by nobody, which is correct in Keycard's model, so a correctly configured agent whose dependency list named Linear's MCP endpoint got no tools and nothing in the zone was wrong. It also meant the agent tried to exchange for MCP servers it had no dependency on, which could only ever fail.
+**This replaces a rule that a live run proved wrong.** Discovery used to walk every application in the zone and scan the resources each one *provided*. A third-party API is registered as a resource provided by nobody, which is correct in Keycard's model. So a correctly configured agent whose dependency list named Linear's MCP endpoint got no tools, and nothing in the zone was wrong. It also meant the agent tried to exchange for MCP servers it had no dependency on, which could only ever fail.
 
-If the tool list is empty, the log distinguishes the two causes: no application provides your anchor, meaning the agent is misregistered and exchanges will fail too, or the anchor is fine and nothing on the dependency list looks like an MCP server.
+If the tool list is empty, the log distinguishes the two causes. Either no application provides your anchor, which means the agent is misregistered and exchanges will fail too, or the anchor is fine and nothing on the dependency list looks like an MCP server.
 
 ## How a request flows
 
