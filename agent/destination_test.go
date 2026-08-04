@@ -219,7 +219,13 @@ func TestWithNothingResolvedTheModelIsToldToSaySo(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("expected a refusal, got %+v", result)
 	}
-	if !strings.Contains(result.Content, "nothing to authorize") {
+	if !strings.Contains(result.Content, "nothing to") {
 		t.Fatalf("unexpected content: %q", result.Content)
+	}
+	// The wording must not send the person to an administrator. A model read the previous message as a
+	// per-user permission problem and told them their identity needed provisioning; it was already fine,
+	// and the agent simply could not read its own configuration.
+	if !strings.Contains(result.Content, "not a problem with this person's account") {
+		t.Fatalf("the refusal should rule out a user-provisioning problem: %q", result.Content)
 	}
 }

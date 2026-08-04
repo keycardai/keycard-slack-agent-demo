@@ -388,9 +388,17 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		known := knownResourceIdentifiers(mcpTools, authTools)
 		if unknown := unknownResources(resources, known); len(unknown) > 0 {
 			if len(known) == 0 {
+				// Careful with this wording. It said "no resources are resolved for this user", and a
+				// model read that as a per-user permission problem and told the person to ask an
+				// administrator to provision their identity. Their identity was fine; the agent could
+				// not read its own zone configuration. The tool does not know which cause applies, so
+				// it must not imply one.
 				return ToolResult{
-					Content: "no resources are resolved for this user, so there is nothing to authorize;" +
-						" say so rather than guessing an identifier",
+					Content: "no MCP resources are available for this request, so there is nothing to" +
+						" authorize. This means the agent has no MCP dependency configured or could not" +
+						" read its zone configuration. It is not a problem with this person's account," +
+						" so do not suggest they ask an administrator to provision their identity. Say" +
+						" you cannot reach any tools and that the agent's setup needs checking.",
 					IsError: true,
 				}
 			}
