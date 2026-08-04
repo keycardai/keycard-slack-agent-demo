@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -98,6 +99,38 @@ func Load() (Config, error) {
 	if len(cfg.StateSecret) == 0 {
 		missing = append(missing, "STATE_SECRET")
 	}
+	// Unedited placeholders from .env.example. These are worse than a missing value, because they are
+	// present, so nothing complains and the failure surfaces much later: a placeholder BASE_URL sends
+	// the consent redirect to a domain you do not own, and a literal "..." service-account id looks
+	// configured enough to take the service-account branch and then fails every inventory read, which
+	// presents as an agent with no tools.
+	var placeholders []string
+	for name, value := range map[string]string{
+		"SLACK_BOT_TOKEN":                cfg.SlackBotToken,
+		"SLACK_APP_TOKEN":                cfg.SlackAppToken,
+		"KEYCARD_ZONE_URL":               cfg.KeycardZoneURL,
+		"KEYCARD_ZONE_ID":                cfg.KeycardZoneID,
+		"KEYCARD_CLIENT_ID":              cfg.KeycardClientID,
+		"KEYCARD_CLIENT_SECRET":          cfg.KeycardClientSecret,
+		"KEYCARD_RESOURCE":               cfg.KeycardResource,
+		"KEYCARD_SERVICE_ACCOUNT_ID":     cfg.KeycardServiceAccountID,
+		"KEYCARD_SERVICE_ACCOUNT_SECRET": cfg.KeycardServiceAccountSecret,
+		"BASE_URL":                       cfg.BaseURL,
+		"ANTHROPIC_API_KEY":              cfg.AnthropicAPIKey,
+		"ENCRYPTION_KEY":                 string(cfg.EncryptionKey),
+		"STATE_SECRET":                   string(cfg.StateSecret),
+	} {
+		if isPlaceholder(name, value) {
+			placeholders = append(placeholders, name)
+		}
+	}
+	sort.Strings(placeholders)
+	if len(placeholders) > 0 {
+		return cfg, errors.New("these still hold placeholder values from .env.example: " +
+			strings.Join(placeholders, ", ") +
+			" (leave a value empty if you do not want it, rather than leaving the example text)")
+	}
+
 	if len(missing) > 0 {
 		envFile := os.Getenv("ENV_FILE")
 		if envFile == "" {
@@ -113,4 +146,27 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// isPlaceholder reports whether a value is still the example text rather than a real one.
+//
+// Narrow on purpose. A real secret can contain almost anything, so this matches the exact strings
+// .env.example ships and the "..." convention, not a general shape.
+func isPlaceholder(name, value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false // absent is a different problem, reported separately
+	}
+	switch trimmed {
+	case "...", "xoxb-...", "xapp-...", "change-me", "https://your-agent.example.com":
+		return true
+	}
+	// The paste error that produced /DATABASE_PATH=./agent.db: the value repeats its own key. No
+	// legitimate value does that, and base64 padding or a connection string will not match, because
+	// this looks for the variable's own name followed by an equals sign.
+	if strings.Contains(trimmed, name+"=") {
+		return true
+	}
+	return strings.Contains(trimmed, "change-me-32-bytes") ||
+		strings.Contains(trimmed, "your-agent.example.com")
 }

@@ -118,3 +118,63 @@ func contains(haystack, needle string) bool {
 		return false
 	})()
 }
+
+func TestPlaceholdersAreRejected(t *testing.T) {
+	// Worse than a missing value, because they are present so nothing complains, and the failure
+	// surfaces much later and somewhere unrelated.
+	cases := []struct{ name, value string }{
+		{"KEYCARD_SERVICE_ACCOUNT_ID", "..."},
+		{"BASE_URL", "https://your-agent.example.com"},
+		{"STATE_SECRET", "change-me"},
+		{"ENCRYPTION_KEY", "change-me-32-bytes-exactly!!!!!!"},
+		{"SLACK_BOT_TOKEN", "xoxb-..."},
+		// The paste error: the value repeats its own key.
+		{"DATABASE_PATH", "/DATABASE_PATH=./slack-agent.db"},
+	}
+	for _, c := range cases {
+		if !isPlaceholder(c.name, c.value) {
+			t.Errorf("expected %s=%q to be treated as a placeholder", c.name, c.value)
+		}
+	}
+}
+
+func TestRealValuesAreNotPlaceholders(t *testing.T) {
+	// A secret can contain almost anything, so the check has to stay narrow.
+	cases := []struct{ name, value string }{
+		{"SLACK_BOT_TOKEN", "xoxb-9f8a7b6c5d4e"},
+		{"BASE_URL", "http://localhost:8080"},
+		{"BASE_URL", "https://agent.acme.com"},
+		// base64 padding ends with = and must not trip the self-key check
+		{"ENCRYPTION_KEY", "c2VjcmV0LWtleS12YWx1ZS0zMg=="},
+		{"KEYCARD_RESOURCE", "urn:keycard:slack-agent"},
+		// a connection string is full of equals signs
+		{"DATABASE_PATH", "./agent.db?cache=shared&mode=rwc"},
+		// empty is a separate problem, reported as missing
+		{"STATE_SECRET", ""},
+	}
+	for _, c := range cases {
+		if isPlaceholder(c.name, c.value) {
+			t.Errorf("%s=%q should not be treated as a placeholder", c.name, c.value)
+		}
+	}
+}
+
+func TestLoadReportsPlaceholdersBeforeComplainingAboutAnythingElse(t *testing.T) {
+	for _, kv := range [][2]string{
+		{"SLACK_BOT_TOKEN", "xoxb-real"}, {"SLACK_APP_TOKEN", "xapp-real"},
+		{"KEYCARD_ZONE_URL", "https://zone.example.com"}, {"KEYCARD_ZONE_ID", "zone_1"},
+		{"KEYCARD_CLIENT_ID", "cid"}, {"KEYCARD_CLIENT_SECRET", "secret"},
+		{"KEYCARD_RESOURCE", "urn:x:agent"}, {"BASE_URL", "https://your-agent.example.com"},
+		{"ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef"}, {"STATE_SECRET", "s"},
+		{"ENV_FILE", "/nonexistent/.env"},
+	} {
+		t.Setenv(kv[0], kv[1])
+	}
+	_, err := Load()
+	if err == nil || !contains(err.Error(), "BASE_URL") {
+		t.Fatalf("expected the placeholder BASE_URL to be reported, got %v", err)
+	}
+	if !contains(err.Error(), "placeholder") {
+		t.Fatalf("error should say what is wrong: %v", err)
+	}
+}
