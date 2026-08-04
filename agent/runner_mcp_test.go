@@ -391,3 +391,56 @@ func (s *stubLinkSigner) SignLink(teamID, userID, channelID string, resources []
 	s.signed = append(s.signed, strings.Join(append([]string{teamID, userID, channelID}, resources...), "|"))
 	return "signed-token", nil
 }
+
+func TestACacheMissFetchesInlineRatherThanGivingUp(t *testing.T) {
+	// The race this replaces. The caller starts a warm in a goroutine and the request read the cache and
+	// gave up on a miss, so the first message of every session saw no tools. In a real run the agent
+	// resolved 62 Linear tools and told the user it had none, three seconds too late to matter.
+	discoverer := &fakeInventoryDiscoverer{
+		inventory: []discovery.ApplicationInventory{{
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://mcp.linear.app/mcp", Name: "Linear MCP"},
+			},
+		}},
+	}
+	// A discoverer with no cache at all, which is the state before any warm has completed.
+	runner := &Runner{Discovery: uncachedDiscoverer{discoverer}, AnchorResource: "urn:test:agent"}
+	reqCtx := &app.RequestContext{SessionID: "session-1", TeamID: "T1", UserID: "U1"}
+
+	if _, ok := runner.cachedDiscoveredMCPCandidatesForRequest("token"); ok {
+		t.Fatal("expected no cache for this test to mean anything")
+	}
+
+	candidates, ok := runner.candidatesForRequest(context.Background(), reqCtx, "token")
+	if !ok {
+		t.Fatal("expected an inline fetch on a cache miss")
+	}
+	if len(candidates) != 1 || candidates[0].Resource.Identifier != "https://mcp.linear.app/mcp" {
+		t.Fatalf("unexpected candidates: %+v", candidates)
+	}
+}
+
+func TestADiscoveryFailureIsNotSilence(t *testing.T) {
+	// A real failure still reports ok=false, so the caller does not confuse "no tools" with "could not
+	// look". They need different things said to the user.
+	discoverer := &fakeInventoryDiscoverer{err: errors.New("status 401: Authentication required")}
+	runner := &Runner{Discovery: uncachedDiscoverer{discoverer}, AnchorResource: "urn:test:agent"}
+	reqCtx := &app.RequestContext{SessionID: "session-1"}
+
+	if _, ok := runner.candidatesForRequest(context.Background(), reqCtx, "token"); ok {
+		t.Fatal("expected a discovery failure to report not-ok")
+	}
+}
+
+// uncachedDiscoverer hides the CachedInventory method, so the runner has to take the fetch path. It
+// models the real state before the first warm completes.
+type uncachedDiscoverer struct {
+	inner *fakeInventoryDiscoverer
+}
+
+func (u uncachedDiscoverer) ListInventory(ctx context.Context, accessToken string) ([]discovery.ApplicationInventory, error) {
+	return u.inner.ListInventory(ctx, accessToken)
+}

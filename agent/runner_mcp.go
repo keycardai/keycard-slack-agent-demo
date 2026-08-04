@@ -81,6 +81,22 @@ func (r *Runner) selectCandidates(inventory []discovery.ApplicationInventory) []
 	return candidates
 }
 
+// candidatesForRequest returns the MCP candidates for this request, preferring the warm cache and
+// falling back to a blocking fetch. Only a genuine discovery failure yields ok=false.
+func (r *Runner) candidatesForRequest(ctx context.Context, reqCtx *app.RequestContext, keycardToken string) ([]discovery.MCPCandidate, bool) {
+	if candidates, ok := r.cachedDiscoveredMCPCandidatesForRequest(keycardToken); ok {
+		return candidates, true
+	}
+	candidates, err := r.discoveredMCPCandidatesForRequest(ctx, keycardToken)
+	if err != nil {
+		log.Printf("mcp discovery failed: session=%s err=%v", reqCtx.SessionID, err)
+		return nil, false
+	}
+	log.Printf("mcp discovery resolved: session=%s candidates=%d detail=cache_miss_fetched_inline",
+		reqCtx.SessionID, len(candidates))
+	return candidates, true
+}
+
 func (r *Runner) mcpToolsForCandidates(ctx context.Context, reqCtx *app.RequestContext, candidates []discovery.MCPCandidate, keycardToken string) ([]anthropic.ToolUnionParam, map[string]MCPToolRef, []discovery.MCPCandidate) {
 	baseToken := strings.TrimSpace(keycardToken)
 	servers := make([]MCPServer, 0, len(candidates))

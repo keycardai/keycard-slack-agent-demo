@@ -165,6 +165,7 @@ Every one of these came out of a real first run, and each fails somewhere unrela
 | `Unauthorized redirect URI` in the browser | `<BASE_URL>/oauth/callback` is not registered on the Keycard application. |
 | `invalid_grant: Client is not allowed to exchange token for this resource` | The agent's application does not **provide** `KEYCARD_RESOURCE`. |
 | The agent works but finds no tools | Nothing on the agent's dependency list looks MCP-facing. The log says so. |
+| Tools resolve in the log but the agent says it has none | An older build read a cache that a background warm filled after the prompt was built, so the first message of a session always missed. Pull the current version. |
 | `list inventory: … needs KEYCARD_SERVICE_ACCOUNT_ID` | Discovery has no service account. It is required, not optional: the Management API will not accept a user's token. |
 | `keycard api: status 401: Authentication required` | An older build sent a user's token to the Management API. Pull the current version and set a service account. |
 | `mcp discovery empty: no_application_provides_anchor` | Nothing provides `KEYCARD_RESOURCE`, so the agent cannot be found in its own zone and exchanges will fail too. |

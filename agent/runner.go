@@ -177,7 +177,17 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 	tools := buildAnthropicTools(toolSpecs)
 	mcpToolMap := map[string]MCPToolRef{}
 	authToolMap := map[string]AuthToolRef{}
-	if candidates, ok := r.cachedDiscoveredMCPCandidatesForRequest(keycardToken); ok {
+	// Resolve the tool list for this request, waiting for discovery if it has not run yet.
+	//
+	// This used to read the cache and give up on a miss, while a warm ran concurrently in a goroutine
+	// started by the caller. The two raced and the request always lost: discovery finished seconds
+	// after the prompt was built, so the very first message in a session saw no tools at all. The
+	// symptom was an agent that had just resolved 62 Linear tools and told the user it had none, then
+	// guessed at a resource identifier because its tool list was empty.
+	//
+	// A cache miss now blocks on the fetch. It costs a second on the first message of a session and it
+	// is the difference between working and not.
+	if candidates, ok := r.candidatesForRequest(ctx, reqCtx, keycardToken); ok {
 		mcpTools, refs, unauthorizedCandidates := r.cachedMCPToolsForCandidates(reqCtx, candidates, keycardToken)
 		if len(mcpTools) > 0 {
 			tools = append(tools, mcpTools...)
@@ -188,8 +198,6 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 			tools = append(tools, authTools...)
 		}
 		authToolMap = authRefs
-	} else {
-		log.Printf("mcp discovery skipped: session=%s detail=cache_miss", reqCtx.SessionID)
 	}
 
 	var assistantText strings.Builder
