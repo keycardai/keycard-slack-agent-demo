@@ -82,6 +82,7 @@ func main() {
 	)
 	agentRunner.Model = cfg.AnthropicModel
 	agentRunner.LinkSigner = agentLinkSigner{stateSigner}
+	agentRunner.AnchorResource = cfg.KeycardResource
 
 	agentRunner.Discovery = discovery.NewService(
 		cfg.KeycardZoneID,

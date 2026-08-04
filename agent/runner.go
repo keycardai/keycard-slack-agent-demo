@@ -79,6 +79,9 @@ type Runner struct {
 	// LinkSigner signs consent links. Without one the agent cannot hand out a link at all, which is
 	// the correct failure: an unsigned link is one anybody can forge.
 	LinkSigner LinkSigner
+	// AnchorResource is the resource this agent provides, from KEYCARD_RESOURCE. It identifies the
+	// agent's own application inside the zone inventory, which is how its dependency list is found.
+	AnchorResource string
 	// Model is the model the agent runs on. Empty falls back to DefaultModel.
 	Model string
 }

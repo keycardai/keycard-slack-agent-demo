@@ -40,18 +40,20 @@ If you take one thing from this repo for your own agent, take this and the guard
 
 ### Which resources become tools
 
-Two conditions have to hold. Some application in the zone **provides** the resource, and the resource identifier looks MCP-facing, which currently means it contains `mcp`.
+The agent's own **dependency list** in Keycard, filtered to the entries that look MCP-facing, which currently means the identifier contains `mcp`.
 
-The second condition stands in for a field that does not exist. An MCP-provider application also provides ordinary resources: a github app provides `github-api` alongside `mcp-github`, and only the latter is a tool. Nothing in the inventory says which resource is the MCP endpoint. Where the providing application declares traits, `mcp-provider` has to be among them, which stops a resource named `mcpayments` being offered by an application that never claimed to serve MCP.
+Keycard defines an application's dependencies as its reach. Every destination it will exchange toward has to be on that list, and the list is what the consent screen enumerates, so it already answers "what may this agent reach." Reading anything else means guessing. The agent finds its own registration by looking for whichever application provides `KEYCARD_RESOURCE`, a pairing that has to exist for it to work at all.
 
-**The first condition is a real limitation, found by running this.** Discovery walks applications and then the resources each one provides, so a resource with no providing application is invisible no matter what the agent depends on. A third-party API is registered as a resource provided by nobody, which is the correct shape in Keycard's model, so `https://mcp.linear.app/mcp` on the agent's dependency list will never become a tool.
+The identifier check remains because a dependency list holds whatever the agent reaches, including plain APIs and vault secrets. Nothing in the inventory says which entries speak MCP. It is a much smaller job than it was: the worst it can do now is offer a tool for a non-MCP dependency, which fails at connect rather than reaching anything unintended.
 
-That is the wrong source. Keycard's model says an application's **dependency list** is its reach. Reading candidates from there would fix this, and would stop the agent trying to exchange for MCP servers it has no dependency on. Until that changes, only MCP servers provided by an application in your zone are reachable, such as a Keycard MCP gateway resource.
+**This replaces a rule that a live run proved wrong.** Discovery used to walk every application in the zone and scan the resources each one *provided*. A third-party API is registered as a resource provided by nobody, which is correct in Keycard's model, so a correctly configured agent whose dependency list named Linear's MCP endpoint got no tools and nothing in the zone was wrong. It also meant the agent tried to exchange for MCP servers it had no dependency on, which could only ever fail.
+
+If the tool list is empty, the log distinguishes the two causes: no application provides your anchor, meaning the agent is misregistered and exchanges will fail too, or the anchor is fine and nothing on the dependency list looks like an MCP server.
 
 ## How a request flows
 
 1. A message arrives over Socket Mode. The agent resolves the Slack user to a stored Keycard session, refreshing it if expired, and prompts for a link if there is none.
-2. The zone inventory is read to find candidate MCP servers, which is registration data only and never anyone's content. Set the service-account credentials and it reads as the service account; leave them unset and it reads as the asking person.
+2. The zone inventory is read to find the agent's own dependency list, which is registration data only and never anyone's content. Set the service-account credentials and it reads as the service account; leave them unset and it reads as the asking person.
 3. Each candidate is exchanged against the asking user's token. Ready servers become tools; ones needing consent become an authorize affordance.
 4. The model runs with that tool list. Tool calls carry the user-scoped credential.
 5. The reply posts back to the thread. Session history holds the user message and the assistant's text, so the agent's memory never exceeds what the channel already shows.
@@ -158,7 +160,8 @@ Every one of these came out of a real first run, and each fails somewhere unrela
 | Slack says *Sending messages to this app has been turned off* | App Home, Messages Tab, read-only. See the Slack app section. |
 | `Unauthorized redirect URI` in the browser | `<BASE_URL>/oauth/callback` is not registered on the Keycard application. |
 | `invalid_grant: Client is not allowed to exchange token for this resource` | The agent's application does not **provide** `KEYCARD_RESOURCE`. |
-| The agent works but finds no tools | Either nothing in the zone provides an MCP resource, see the selection rule, or the service-account credentials are set to something invalid such as `...`. |
+| The agent works but finds no tools | Nothing on the agent's dependency list looks MCP-facing, or the service-account credentials are set to something invalid such as `...`. The log says which. |
+| `mcp discovery empty: no_application_provides_anchor` | Nothing provides `KEYCARD_RESOURCE`, so the agent cannot be found in its own zone and exchanges will fail too. |
 | `interaction_required` for a resource you can reach | A dependency was added after you linked. Consent is recorded at login, so link again. |
 
 ## Tests

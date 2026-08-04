@@ -17,15 +17,17 @@ import (
 func TestDiscoveredMCPServersFiltersInventory(t *testing.T) {
 	inventory := []discovery.ApplicationInventory{
 		{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources: []keycard.Resource{
-				{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
-				{ID: "res_2", Identifier: "github-api", Name: "GitHub API"},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+				{ID: "dep_2", Identifier: "github-api", Name: "GitHub API"},
 			},
 		},
 	}
 
-	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory))
+	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory, "urn:test:agent"))
 	if len(servers) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(servers))
 	}
@@ -43,15 +45,17 @@ func TestDiscoveredMCPServersFiltersInventory(t *testing.T) {
 func TestDiscoveredMCPServersKeepsNamesDistinctPerResource(t *testing.T) {
 	inventory := []discovery.ApplicationInventory{
 		{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources: []keycard.Resource{
-				{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
-				{ID: "res_2", Identifier: "https://github-admin.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+				{ID: "dep_2", Identifier: "https://github-admin.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
 			},
 		},
 	}
 
-	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory))
+	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory, "urn:test:agent"))
 	if len(servers) != 2 {
 		t.Fatalf("expected 2 servers, got %d", len(servers))
 	}
@@ -63,15 +67,20 @@ func TestDiscoveredMCPServersKeepsNamesDistinctPerResource(t *testing.T) {
 func TestMCPToolsForRequestUsesDiscoveryInventory(t *testing.T) {
 	discoverer := &fakeInventoryDiscoverer{
 		inventory: []discovery.ApplicationInventory{{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources:   []keycard.Resource{{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"}},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			},
 		}},
 	}
 
 	var gotToken string
 	var gotServers []MCPServer
 	runner := &Runner{
-		Discovery: discoverer,
+		AnchorResource: "urn:test:agent",
+		Discovery:      discoverer,
 		BuildMCPTools: func(_ context.Context, servers []MCPServer, accessToken string) ([]anthropic.ToolUnionParam, map[string]MCPToolRef) {
 			gotToken = accessToken
 			gotServers = append([]MCPServer(nil), servers...)
@@ -107,12 +116,16 @@ func TestMCPToolsForRequestUsesDiscoveryInventory(t *testing.T) {
 func TestWarmMCPToolsHydratesDiscoveredServers(t *testing.T) {
 	discoverer := &fakeInventoryDiscoverer{
 		inventory: []discovery.ApplicationInventory{{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources:   []keycard.Resource{{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"}},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			},
 		}},
 	}
 	broker := &fakeResourceBroker{token: "resource-token"}
-	runner := &Runner{Discovery: discoverer, ResourceBroker: broker}
+	runner := &Runner{Discovery: discoverer, ResourceBroker: broker, AnchorResource: "urn:test:agent"}
 	reqCtx := &app.RequestContext{SessionID: "session-1", TeamID: "T1", UserID: "U1"}
 
 	runner.WarmMCPTools(context.Background(), reqCtx, "user-access-token")
