@@ -53,7 +53,7 @@ If the tool list is empty, the log distinguishes the two causes. Either no appli
 ## How a request flows
 
 1. A message arrives over Socket Mode. The agent resolves the Slack user to a stored Keycard session, refreshing it if expired, and prompts for a link if there is none.
-2. The zone inventory is read to find the agent's own dependency list, which is registration data only and never anyone's content. Set the service-account credentials and it reads as the service account; leave them unset and it reads as the asking person.
+2. The zone inventory is read to find the agent's own dependency list, which is registration data only and never anyone's content. It uses the service account, because the Management API needs a service-account credential and a user's token is not one.
 3. Each candidate is exchanged against the asking user's token. Ready servers become tools; ones needing consent become an authorize affordance.
 4. The model runs with that tool list. Tool calls carry the user-scoped credential.
 5. The reply posts back to the thread. Session history holds the user message and the assistant's text, so the agent's memory never exceeds what the channel already shows.
@@ -110,7 +110,7 @@ The subscriptions are message events rather than `app_mention`, because the agen
 
 `user_change`, `tokens_revoked`, and `app_uninstalled` are the revocation signals. Without them the agent keeps refresh tokens for people and workspaces it has no business holding, so they are not optional the way a surface is.
 
-**Keycard zone.** Five things, in order. The last two are the ones that fail late and confusingly.
+**Keycard zone.** Six things, in order. The last two are the ones that fail late and confusingly.
 
 1. **An application for the agent**, with a client secret. Token exchange needs client authentication, so a public PKCE client will not work.
 
@@ -128,7 +128,11 @@ The subscriptions are message events rather than `app_mention`, because the agen
 
    Both halves matter. An application may only exchange tokens addressed to a resource it provides, so without the pairing every per-request exchange returns `invalid_grant`. The resource never serves traffic; its only job is to give the login token a legal audience to exchange from.
 
-5. **The MCP servers the agent should reach**, on the application's dependency list.
+5. **A service account**, under Organization in the console, into `KEYCARD_SERVICE_ACCOUNT_ID` and `KEYCARD_SERVICE_ACCOUNT_SECRET`.
+
+   Required rather than optional. Reading the zone inventory goes through the Management API, which wants a service-account credential, and a user's access token is audienced to a resource so it is not one. Without this the agent runs and answers, and simply never finds a tool.
+
+6. **The MCP servers the agent should reach**, on the application's dependency list.
 
    Add them before anyone links their account: consent is recorded at login from the list as it stood then, and a dependency added later makes every affected person consent again.
 
@@ -160,7 +164,9 @@ Every one of these came out of a real first run, and each fails somewhere unrela
 | Slack says *Sending messages to this app has been turned off* | App Home, Messages Tab, read-only. See the Slack app section. |
 | `Unauthorized redirect URI` in the browser | `<BASE_URL>/oauth/callback` is not registered on the Keycard application. |
 | `invalid_grant: Client is not allowed to exchange token for this resource` | The agent's application does not **provide** `KEYCARD_RESOURCE`. |
-| The agent works but finds no tools | Nothing on the agent's dependency list looks MCP-facing, or the service-account credentials are set to something invalid such as `...`. The log says which. |
+| The agent works but finds no tools | Nothing on the agent's dependency list looks MCP-facing. The log says so. |
+| `list inventory: … needs KEYCARD_SERVICE_ACCOUNT_ID` | Discovery has no service account. It is required, not optional: the Management API will not accept a user's token. |
+| `keycard api: status 401: Authentication required` | An older build sent a user's token to the Management API. Pull the current version and set a service account. |
 | `mcp discovery empty: no_application_provides_anchor` | Nothing provides `KEYCARD_RESOURCE`, so the agent cannot be found in its own zone and exchanges will fail too. |
 | `interaction_required` for a resource you can reach | A dependency was added after you linked. Consent is recorded at login, so link again. |
 

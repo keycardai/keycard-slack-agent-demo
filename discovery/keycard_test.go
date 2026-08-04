@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,8 +61,11 @@ func TestServiceListInventoryPaginatesApplicationsResourcesAndDependencies(t *te
 
 	var gotToken string
 	service := &Service{
-		zoneID:   "zone_123",
-		cacheTTL: 30 * time.Second,
+		zoneID:               "zone_123",
+		serviceAccountID:     "svc-id",
+		serviceAccountSecret: "svc-secret",
+		tokenSource:          func(context.Context) (string, error) { return "svc-token", nil },
+		cacheTTL:             30 * time.Second,
 		now: func() time.Time {
 			return time.Date(2026, time.March, 11, 9, 5, 0, 0, time.UTC)
 		},
@@ -75,8 +79,10 @@ func TestServiceListInventoryPaginatesApplicationsResourcesAndDependencies(t *te
 	if err != nil {
 		t.Fatalf("list inventory: %v", err)
 	}
-	if gotToken != "user-access-token" {
-		t.Fatalf("expected token to reach client factory, got %q", gotToken)
+	// The client is built with the service-account token, never the user's. The user's token is
+	// audienced to a resource and is not a Management API credential.
+	if gotToken != "svc-token" {
+		t.Fatalf("expected the service-account token to reach the client factory, got %q", gotToken)
 	}
 	if len(inventory) != 2 {
 		t.Fatalf("expected 2 applications, got %d", len(inventory))
@@ -112,7 +118,7 @@ func TestServiceListInventoryPaginatesApplicationsResourcesAndDependencies(t *te
 	}
 }
 
-func TestServiceListInventoryCachesByAccessTokenWithinTTL(t *testing.T) {
+func TestServiceListInventoryCachesWithinTTL(t *testing.T) {
 	fake := &fakeInventoryClient{
 		applicationPages: map[string]*keycard.Page[keycard.Application]{
 			"": {Items: []keycard.Application{{ID: "app_1", Identifier: "github", Name: "GitHub"}}},
@@ -126,8 +132,11 @@ func TestServiceListInventoryCachesByAccessTokenWithinTTL(t *testing.T) {
 	}
 	currentTime := time.Date(2026, time.March, 11, 9, 10, 0, 0, time.UTC)
 	service := &Service{
-		zoneID:   "zone_123",
-		cacheTTL: 30 * time.Second,
+		zoneID:               "zone_123",
+		serviceAccountID:     "svc-id",
+		serviceAccountSecret: "svc-secret",
+		tokenSource:          func(context.Context) (string, error) { return "svc-token", nil },
+		cacheTTL:             30 * time.Second,
 		now: func() time.Time {
 			return currentTime
 		},
@@ -166,8 +175,11 @@ func TestServiceListInventoryRefreshesExpiredCache(t *testing.T) {
 	}
 	currentTime := time.Date(2026, time.March, 11, 9, 10, 0, 0, time.UTC)
 	service := &Service{
-		zoneID:   "zone_123",
-		cacheTTL: 30 * time.Second,
+		zoneID:               "zone_123",
+		serviceAccountID:     "svc-id",
+		serviceAccountSecret: "svc-secret",
+		tokenSource:          func(context.Context) (string, error) { return "svc-token", nil },
+		cacheTTL:             30 * time.Second,
 		now: func() time.Time {
 			return currentTime
 		},
@@ -188,7 +200,9 @@ func TestServiceListInventoryRefreshesExpiredCache(t *testing.T) {
 	}
 }
 
-func TestServiceListInventoryRequiresAccessToken(t *testing.T) {
+func TestServiceListInventoryRequiresAServiceAccount(t *testing.T) {
+	// The Management API wants a service-account credential. A user's access token is audienced to a
+	// resource and answers 401 here, so this has to fail before the request rather than after it.
 	service := &Service{
 		zoneID:   "zone_123",
 		cacheTTL: 30 * time.Second,
@@ -198,21 +212,41 @@ func TestServiceListInventoryRequiresAccessToken(t *testing.T) {
 		},
 	}
 
-	_, err := service.ListInventory(context.Background(), " ")
-	if err == nil {
-		t.Fatal("expected missing access token error")
+	_, err := service.ListInventory(context.Background(), "a-perfectly-good-user-token")
+	if !errors.Is(err, ErrNoServiceAccount) {
+		t.Fatalf("expected ErrNoServiceAccount, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "access token") {
-		t.Fatalf("expected access token error, got %v", err)
+	if !strings.Contains(err.Error(), "KEYCARD_SERVICE_ACCOUNT_ID") {
+		t.Fatalf("the error should name what to set: %v", err)
 	}
 }
 
-func TestNewServiceUsesBearerTokenAndBaseURL(t *testing.T) {
+func TestServiceListInventoryRejectsHalfAServiceAccount(t *testing.T) {
+	service := &Service{
+		zoneID:           "zone_123",
+		serviceAccountID: "svc-id",
+		cacheTTL:         30 * time.Second,
+		now:              time.Now,
+		newClient:        func(string) inventoryClient { return &fakeInventoryClient{} },
+	}
+	_, err := service.ListInventory(context.Background(), "token")
+	if err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("expected an incomplete-credentials error naming both halves, got %v", err)
+	}
+}
+
+func TestNewServiceUsesTheServiceAccountTokenAndBaseURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/service-account-token" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"svc-token"}`))
+			return
+		}
 		if r.URL.Path != "/zones/zone_123/applications" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer user-access-token" {
+		// The user's token must never appear here. It is not a Management API credential.
+		if got := r.Header.Get("Authorization"); got != "Bearer svc-token" {
 			t.Fatalf("unexpected auth header: %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -220,7 +254,7 @@ func TestNewServiceUsesBearerTokenAndBaseURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewService("zone_123", server.URL, "", "")
+	service := NewService("zone_123", server.URL, "svc-id", "svc-secret")
 	inventory, err := service.ListInventory(context.Background(), "user-access-token")
 	if err != nil {
 		t.Fatalf("list inventory: %v", err)

@@ -180,8 +180,13 @@ const ServiceAccountToken = "service-account-token"
 
 // handleZones serves the three Management API list endpoints the agent reads.
 func (z *Zone) handleZones(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	// Strict on purpose. This accepted any bearer token, which let a test pass for the inventory read
+	// falling back to a user's access token, a path the real Management API answers with 401. A fake
+	// that is more permissive than the real thing certifies code that cannot work.
+	if r.Header.Get("Authorization") != "Bearer "+ServiceAccountToken {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "unauthorized", "message": "Authentication required",
+		})
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")

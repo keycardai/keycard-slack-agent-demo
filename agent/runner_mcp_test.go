@@ -283,8 +283,14 @@ func TestExecuteToolAuthorizeResourceSupportsMultipleResources(t *testing.T) {
 	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: signer}
 	reqCtx := &app.RequestContext{TeamID: "T1", UserID: "U1", ChannelID: "C1", ThreadTS: "thread-1", SessionID: "session-1"}
 	input := map[string]any{"resources": []any{"https://api.github.com", "https://api.linear.app"}}
+	// The identifiers have to be ones resolved for this request. A model naming something it invented
+	// is refused, which is what this tool used to allow.
+	authTools := map[string]AuthToolRef{
+		"authorize_github": {Resource: "https://api.github.com"},
+		"authorize_linear": {Resource: "https://api.linear.app"},
+	}
 
-	result := runner.executeTool(context.Background(), reqCtx, "base-token", ToolAuthorizeResource, input, nil, nil)
+	result := runner.executeTool(context.Background(), reqCtx, "base-token", ToolAuthorizeResource, input, nil, authTools)
 	if result.IsError {
 		t.Fatalf("expected success, got %+v", result)
 	}

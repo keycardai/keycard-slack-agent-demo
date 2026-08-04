@@ -2,6 +2,7 @@ package fakezone_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/keycardai/keycard-slack-agent-demo/discovery"
@@ -112,21 +113,16 @@ func TestSelectionReadsTheAgentsDependenciesFromALiveInventory(t *testing.T) {
 	}
 }
 
-func TestWithoutAServiceAccountTheInventoryIsReadAsTheUser(t *testing.T) {
-	// Documented because it is easy to misread as a bug. With no service-account credentials the
-	// inventory read falls back to the asking person's own token, so their permission to list the
-	// zone decides what the agent can offer them. The README says so; this pins it.
+func TestWithoutAServiceAccountTheInventoryReadFailsClearly(t *testing.T) {
+	// This test used to assert the opposite, that the read falls back to the asking user's token, and it
+	// passed because the fake accepted any bearer token. The real Management API answers 401, so the
+	// fake is strict now and the code fails before the request with a message naming what to set.
 	zone := zoneWithInventory(t)
 	service := discovery.NewService("zone_1", zone.URL(), "", "")
 
-	if _, err := service.ListInventory(context.Background(), "alice-session"); err != nil {
-		t.Fatalf("list inventory: %v", err)
-	}
-	// No client_credentials grant happens, because there is no service account to grant to.
-	for _, exchange := range zone.Exchanges() {
-		if exchange.SubjectToken == fakezone.ServiceAccountToken {
-			t.Fatalf("a service-account token appeared with none configured: %+v", exchange)
-		}
+	_, err := service.ListInventory(context.Background(), "alice-session")
+	if !errors.Is(err, discovery.ErrNoServiceAccount) {
+		t.Fatalf("expected ErrNoServiceAccount, got %v", err)
 	}
 }
 

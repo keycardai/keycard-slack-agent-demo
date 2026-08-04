@@ -165,3 +165,61 @@ func TestTheToolSchemaDoesNotOfferADestinationOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestTheModelCannotAuthorizeAnInventedResource(t *testing.T) {
+	// Asked about a board it could not reach, a model called authorize_resource with resource="linear".
+	// The link it produced failed at Keycard with "Requested authorization for unknown resource", after
+	// the agent had told the user a link was on its way. A resource identifier is not the model's to
+	// invent, and the only valid ones are those resolved for this request.
+	slack := &recordingSlack{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: &stubLinkSigner{}}
+	authTools := map[string]AuthToolRef{
+		"authorize_linear": {Resource: "https://mcp.linear.app/mcp", Label: "Linear MCP"},
+	}
+
+	result := runner.executeTool(context.Background(), channelRequest(), "token",
+		ToolAuthorizeResource, map[string]any{"resource": "linear"}, nil, authTools)
+
+	if !result.IsError {
+		t.Fatalf("expected an invented identifier to be refused, got %+v", result)
+	}
+	// The refusal has to hand back the real names, or the model has no way to correct itself.
+	if !strings.Contains(result.Content, "https://mcp.linear.app/mcp") {
+		t.Fatalf("the refusal should name the available identifiers: %q", result.Content)
+	}
+	if len(slack.posts) != 0 {
+		t.Fatalf("a link was sent for an unknown resource: %#v", slack.posts)
+	}
+}
+
+func TestARealResourceIsStillAuthorizable(t *testing.T) {
+	slack := &recordingSlack{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: &stubLinkSigner{}}
+	authTools := map[string]AuthToolRef{
+		"authorize_linear": {Resource: "https://mcp.linear.app/mcp", Label: "Linear MCP"},
+	}
+
+	result := runner.executeTool(context.Background(), channelRequest(), "token",
+		ToolAuthorizeResource, map[string]any{"resource": "https://mcp.linear.app/mcp"}, nil, authTools)
+
+	if result.IsError {
+		t.Fatalf("expected a known resource to be authorizable, got %+v", result)
+	}
+}
+
+func TestWithNothingResolvedTheModelIsToldToSaySo(t *testing.T) {
+	// The state a real run was in: discovery failed, so nothing is resolved. Guessing is the wrong
+	// response and the tool result says which response is right.
+	slack := &recordingSlack{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: &stubLinkSigner{}}
+
+	result := runner.executeTool(context.Background(), channelRequest(), "token",
+		ToolAuthorizeResource, map[string]any{"resource": "linear"}, nil, nil)
+
+	if !result.IsError {
+		t.Fatalf("expected a refusal, got %+v", result)
+	}
+	if !strings.Contains(result.Content, "nothing to authorize") {
+		t.Fatalf("unexpected content: %q", result.Content)
+	}
+}

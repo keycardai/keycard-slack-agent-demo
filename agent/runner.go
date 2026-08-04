@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -380,6 +381,25 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		if len(resources) == 0 {
 			return ToolResult{Content: "missing resource", IsError: true}
 		}
+		// A resource identifier is not the model's to invent. Asked for a board it could not reach, a
+		// model called this with resource="linear", and the link it produced failed at Keycard with
+		// "Requested authorization for unknown resource". The valid identifiers are exactly the ones
+		// resolved for this request, so check against those and hand the real names back on a miss.
+		known := knownResourceIdentifiers(mcpTools, authTools)
+		if unknown := unknownResources(resources, known); len(unknown) > 0 {
+			if len(known) == 0 {
+				return ToolResult{
+					Content: "no resources are resolved for this user, so there is nothing to authorize;" +
+						" say so rather than guessing an identifier",
+					IsError: true,
+				}
+			}
+			return ToolResult{
+				Content: "unknown resource " + strings.Join(unknown, ", ") +
+					"; the identifiers available for this request are " + strings.Join(known, ", "),
+				IsError: true,
+			}
+		}
 		destination, _ := input["destination"].(string)
 		destination = strings.ToLower(strings.TrimSpace(destination))
 		channel, _ := input["channel"].(string)
@@ -571,4 +591,42 @@ func logPromptTools(reqCtx *app.RequestContext, tools []ToolSpec) {
 		names = append(names, tool.Name)
 	}
 	log.Printf("prompt tools: session=%s tools=%s", reqCtx.SessionID, strings.Join(names, ","))
+}
+
+// knownResourceIdentifiers returns every resource identifier resolved for this request, whether it
+// ended up as a usable tool or as something needing authorization.
+func knownResourceIdentifiers(mcpTools map[string]MCPToolRef, authTools map[string]AuthToolRef) []string {
+	seen := map[string]bool{}
+	identifiers := make([]string, 0, len(mcpTools)+len(authTools))
+	add := func(identifier string) {
+		identifier = strings.TrimSpace(identifier)
+		if identifier == "" || seen[identifier] {
+			return
+		}
+		seen[identifier] = true
+		identifiers = append(identifiers, identifier)
+	}
+	for _, ref := range mcpTools {
+		add(ref.Server.URL)
+	}
+	for _, ref := range authTools {
+		add(ref.Resource)
+	}
+	sort.Strings(identifiers)
+	return identifiers
+}
+
+// unknownResources returns the requested identifiers that are not in the known set.
+func unknownResources(requested, known []string) []string {
+	valid := make(map[string]bool, len(known))
+	for _, identifier := range known {
+		valid[strings.ToLower(identifier)] = true
+	}
+	unknown := make([]string, 0)
+	for _, resource := range requested {
+		if !valid[strings.ToLower(strings.TrimSpace(resource))] {
+			unknown = append(unknown, resource)
+		}
+	}
+	return unknown
 }
