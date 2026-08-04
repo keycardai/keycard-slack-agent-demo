@@ -88,6 +88,8 @@ go run .
 
 **Slack app.** Create it from [`manifest.json`](manifest.json). At https://api.slack.com/apps choose *Create New App*, then *From an app manifest*, pick the workspace, and paste the file.
 
+If you created the app before this manifest existed, check **App Home → Show Tabs → Messages Tab** and make sure *Allow users to send Slash commands and messages from the messages tab* is on. The tab defaults to read-only, which shows "Sending messages to this app has been turned off" and blocks the DM the consent flow depends on. The manifest sets it; the console default does not.
+
 Two things the manifest cannot do for you. Generate an **app-level token** with `connections:write` under *Basic Information → App-Level Tokens*, which becomes `SLACK_APP_TOKEN`; Socket Mode needs it and it is not a bot scope. Then install the app and copy the bot token into `SLACK_BOT_TOKEN`.
 
 The manifest asks for history scopes and message events on all four surfaces so the agent works wherever you put it. For a real deployment, drop the surfaces you are not using: an agent that only lives in public channels needs neither `groups:history` nor `mpim:history`.
