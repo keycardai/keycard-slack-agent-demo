@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -26,7 +27,13 @@ type Config struct {
 	AnthropicModel              string
 }
 
+// Load reads configuration from the environment, after folding in a .env file when one exists so a
+// filled-in file is not silently ignored.
 func Load() (Config, error) {
+	if err := LoadEnvFile(os.Getenv("ENV_FILE")); err != nil {
+		return Config{}, fmt.Errorf("reading env file: %w", err)
+	}
+
 	cfg := Config{
 		SlackBotToken:               os.Getenv("SLACK_BOT_TOKEN"),
 		SlackAppToken:               os.Getenv("SLACK_APP_TOKEN"),
@@ -89,7 +96,17 @@ func Load() (Config, error) {
 		missing = append(missing, "STATE_SECRET")
 	}
 	if len(missing) > 0 {
-		return cfg, errors.New("missing required env vars: " + strings.Join(missing, ", "))
+		envFile := os.Getenv("ENV_FILE")
+		if envFile == "" {
+			envFile = DefaultEnvFile
+		}
+		hint := ""
+		if _, err := os.Stat(envFile); err != nil {
+			// Naming the file it looked for turns "everything is missing" from a mystery into an
+			// instruction. Every variable absent at once nearly always means the file was not found.
+			hint = " (no " + envFile + " found; copy .env.example to .env, or export the values)"
+		}
+		return cfg, errors.New("missing required env vars: " + strings.Join(missing, ", ") + hint)
 	}
 
 	return cfg, nil

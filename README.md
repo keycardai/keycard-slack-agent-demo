@@ -84,6 +84,8 @@ cp .env.example .env    # then fill it in
 go run .
 ```
 
+`.env` is read at startup when it exists, and real environment variables always win over it, so a deployment sets them properly and an image that happens to carry a `.env` cannot override them. Point `ENV_FILE` elsewhere if you keep it somewhere else.
+
 **Slack app.** Create it from [`manifest.json`](manifest.json). At https://api.slack.com/apps choose *Create New App*, then *From an app manifest*, pick the workspace, and paste the file.
 
 Two things the manifest cannot do for you. Generate an **app-level token** with `connections:write` under *Basic Information → App-Level Tokens*, which becomes `SLACK_APP_TOKEN`; Socket Mode needs it and it is not a bot scope. Then install the app and copy the bot token into `SLACK_BOT_TOKEN`.
