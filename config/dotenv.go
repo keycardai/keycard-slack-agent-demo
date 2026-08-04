@@ -19,16 +19,20 @@ const DefaultEnvFile = ".env"
 // and must never be silently overridden by a file that happened to ship in the image.
 //
 // Missing file is not an error: production has no .env.
-func LoadEnvFile(path string) error {
+//
+// Returns the keys the file defined but did not set, because the environment already had them. That
+// list is the answer to "I fixed the file and nothing changed": one `set -a; source .env` leaves the
+// old values exported, and they win forever afterwards in that shell.
+func LoadEnvFile(path string) (shadowed []string, err error) {
 	if strings.TrimSpace(path) == "" {
 		path = DefaultEnvFile
 	}
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
@@ -38,14 +42,17 @@ func LoadEnvFile(path string) error {
 		if !ok {
 			continue
 		}
-		if _, already := os.LookupEnv(key); already {
+		if existing, already := os.LookupEnv(key); already {
+			if existing != value {
+				shadowed = append(shadowed, key)
+			}
 			continue
 		}
 		if err := os.Setenv(key, value); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return scanner.Err()
+	return shadowed, scanner.Err()
 }
 
 // parseEnvLine returns the key and value from one line, or ok=false for blanks and comments.

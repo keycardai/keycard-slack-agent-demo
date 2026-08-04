@@ -23,7 +23,7 @@ func TestLoadEnvFileSetsVariables(t *testing.T) {
 	_ = os.Unsetenv("SLACK_BOT_TOKEN")
 	_ = os.Unsetenv("KEYCARD_ZONE_ID")
 
-	if err := LoadEnvFile(path); err != nil {
+	if _, err := LoadEnvFile(path); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if got := os.Getenv("SLACK_BOT_TOKEN"); got != "xoxb-from-file" {
@@ -40,7 +40,7 @@ func TestTheRealEnvironmentWins(t *testing.T) {
 	path := writeEnv(t, "KEYCARD_ZONE_ID=from-file\n")
 	t.Setenv("KEYCARD_ZONE_ID", "from-the-platform")
 
-	if err := LoadEnvFile(path); err != nil {
+	if _, err := LoadEnvFile(path); err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if got := os.Getenv("KEYCARD_ZONE_ID"); got != "from-the-platform" {
@@ -50,7 +50,7 @@ func TestTheRealEnvironmentWins(t *testing.T) {
 
 func TestAMissingFileIsNotAnError(t *testing.T) {
 	// Production has no .env, so its absence cannot be fatal.
-	if err := LoadEnvFile(filepath.Join(t.TempDir(), "nope.env")); err != nil {
+	if _, err := LoadEnvFile(filepath.Join(t.TempDir(), "nope.env")); err != nil {
 		t.Fatalf("expected a missing file to be fine, got %v", err)
 	}
 }
@@ -176,5 +176,65 @@ func TestLoadReportsPlaceholdersBeforeComplainingAboutAnythingElse(t *testing.T)
 	}
 	if !contains(err.Error(), "placeholder") {
 		t.Fatalf("error should say what is wrong: %v", err)
+	}
+}
+
+func TestShadowedKeysAreReported(t *testing.T) {
+	// The failure this makes visible: one `set -a; source .env` exports the old values, they win over
+	// the file forever after in that shell, and editing the file changes nothing. Without this the
+	// error names the value and cannot say the file was not the source of it.
+	path := writeEnv(t, "BASE_URL=http://localhost:8080\nKEYCARD_ZONE_ID=from-file\n")
+	t.Setenv("BASE_URL", "https://your-agent.example.com")
+	_ = os.Unsetenv("KEYCARD_ZONE_ID")
+
+	shadowed, err := LoadEnvFile(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(shadowed) != 1 || shadowed[0] != "BASE_URL" {
+		t.Fatalf("expected BASE_URL to be reported as shadowed, got %#v", shadowed)
+	}
+	if got := os.Getenv("KEYCARD_ZONE_ID"); got != "from-file" {
+		t.Fatalf("an unset key should still come from the file, got %q", got)
+	}
+}
+
+func TestAnIdenticalValueIsNotShadowing(t *testing.T) {
+	// Exporting the same value the file holds is not a conflict, and reporting it would be noise.
+	path := writeEnv(t, "BASE_URL=http://localhost:8080\n")
+	t.Setenv("BASE_URL", "http://localhost:8080")
+
+	shadowed, err := LoadEnvFile(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(shadowed) != 0 {
+		t.Fatalf("expected no shadowing, got %#v", shadowed)
+	}
+}
+
+func TestThePlaceholderErrorExplainsShadowing(t *testing.T) {
+	path := writeEnv(t, "BASE_URL=http://localhost:8080\n")
+	for _, kv := range [][2]string{
+		{"SLACK_BOT_TOKEN", "xoxb-real"}, {"SLACK_APP_TOKEN", "xapp-real"},
+		{"KEYCARD_ZONE_URL", "https://zone.example.com"}, {"KEYCARD_ZONE_ID", "zone_1"},
+		{"KEYCARD_CLIENT_ID", "cid"}, {"KEYCARD_CLIENT_SECRET", "secret"},
+		{"KEYCARD_RESOURCE", "urn:x:agent"},
+		{"ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef"}, {"STATE_SECRET", "s"},
+		// the stale export
+		{"BASE_URL", "https://your-agent.example.com"},
+		{"ENV_FILE", path},
+	} {
+		t.Setenv(kv[0], kv[1])
+	}
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !contains(err.Error(), "shadowing .env") {
+		t.Fatalf("error should say the value came from the environment: %v", err)
+	}
+	if !contains(err.Error(), "open a new") {
+		t.Fatalf("error should say what to do: %v", err)
 	}
 }

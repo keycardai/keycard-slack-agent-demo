@@ -31,8 +31,13 @@ type Config struct {
 // Load reads configuration from the environment, after folding in a .env file when one exists so a
 // filled-in file is not silently ignored.
 func Load() (Config, error) {
-	if err := LoadEnvFile(os.Getenv("ENV_FILE")); err != nil {
+	shadowed, err := LoadEnvFile(os.Getenv("ENV_FILE"))
+	if err != nil {
 		return Config{}, fmt.Errorf("reading env file: %w", err)
+	}
+	wasShadowed := make(map[string]bool, len(shadowed))
+	for _, key := range shadowed {
+		wasShadowed[key] = true
 	}
 
 	cfg := Config{
@@ -121,14 +126,22 @@ func Load() (Config, error) {
 		"STATE_SECRET":                   string(cfg.StateSecret),
 	} {
 		if isPlaceholder(name, value) {
+			if wasShadowed[name] {
+				name += " (from the environment, shadowing .env)"
+			}
 			placeholders = append(placeholders, name)
 		}
 	}
 	sort.Strings(placeholders)
 	if len(placeholders) > 0 {
+		hint := " (leave a value empty if you do not want it, rather than leaving the example text)"
+		if len(shadowed) > 0 {
+			// The stale-export case. Editing the file cannot help while the old value is exported.
+			hint = "; values already exported in your shell take precedence over .env, so open a new" +
+				" shell or unset them"
+		}
 		return cfg, errors.New("these still hold placeholder values from .env.example: " +
-			strings.Join(placeholders, ", ") +
-			" (leave a value empty if you do not want it, rather than leaving the example text)")
+			strings.Join(placeholders, ", ") + hint)
 	}
 
 	if len(missing) > 0 {

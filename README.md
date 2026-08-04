@@ -86,6 +86,8 @@ go run .
 
 `.env` is read at startup when it exists, and real environment variables always win over it, so a deployment sets them properly and an image that happens to carry a `.env` cannot override them. Point `ENV_FILE` elsewhere if you keep it somewhere else.
 
+That precedence has one sharp edge locally. If you ever run `set -a; source .env`, those values stay exported for the life of the shell and will shadow later edits to the file, so fixing the file appears to do nothing. You do not need to source anything; startup reports any key it found in the file but did not use for this reason.
+
 **Slack app.** Create it from [`manifest.json`](manifest.json). At https://api.slack.com/apps choose *Create New App*, then *From an app manifest*, pick the workspace, and paste the file.
 
 If you created the app before this manifest existed, check **App Home → Show Tabs → Messages Tab** and make sure *Allow users to send Slash commands and messages from the messages tab* is on. The tab defaults to read-only, which shows "Sending messages to this app has been turned off" and blocks the DM the consent flow depends on. The manifest sets it; the console default does not.
