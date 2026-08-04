@@ -158,37 +158,27 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 
 	toolSpecs := r.toolSpecsForRequest(reqCtx)
 	logPromptContext(reqCtx)
-	logPromptTools(reqCtx, toolSpecs)
 
 	events <- AgentEvent{Type: EventAgentStart}
 	events <- AgentEvent{Type: EventTurnStart}
 	events <- AgentEvent{Type: EventMessageStart, MessageRole: "user", Content: userMessage}
 	events <- AgentEvent{Type: EventMessageEnd, MessageRole: "user", Content: userMessage}
 
-	messages, systemPrompt := BuildMessages(
-		reqCtx,
-		history,
-		userMessage,
-		toolSpecs,
-		r.SystemPrompt,
-	)
-	log.Printf("system prompt built: session=%s chars=%d", reqCtx.SessionID, len(systemPrompt))
-
 	tools := buildAnthropicTools(toolSpecs)
 	mcpToolMap := map[string]MCPToolRef{}
 	authToolMap := map[string]AuthToolRef{}
-	// Resolve the tool list for this request, waiting for discovery if it has not run yet.
+
+	// Resolve everything the model can call before describing any of it.
 	//
-	// This used to read the cache and give up on a miss, while a warm ran concurrently in a goroutine
-	// started by the caller. The two raced and the request always lost: discovery finished seconds
-	// after the prompt was built, so the very first message in a session saw no tools at all. The
-	// symptom was an agent that had just resolved 62 Linear tools and told the user it had none, then
-	// guessed at a resource identifier because its tool list was empty.
+	// Two races lived here, at two layers, and both made the request lose to a warm running in a
+	// goroutine the caller started. The candidate cache was read and abandoned on a miss, and then the
+	// server cache was read before the exchange and MCP handshake had happened. A live run resolved 62
+	// Linear tools and told the user it had none.
 	//
-	// A cache miss now blocks on the fetch. It costs a second on the first message of a session and it
-	// is the difference between working and not.
+	// A miss blocks now, at both layers. It costs about a second on the first message of a session,
+	// which is the difference between working and not.
 	if candidates, ok := r.candidatesForRequest(ctx, reqCtx, keycardToken); ok {
-		mcpTools, refs, unauthorizedCandidates := r.cachedMCPToolsForCandidates(reqCtx, candidates, keycardToken)
+		mcpTools, refs, unauthorizedCandidates := r.mcpToolsForCandidates(ctx, reqCtx, candidates, keycardToken)
 		if len(mcpTools) > 0 {
 			tools = append(tools, mcpTools...)
 		}
@@ -199,6 +189,21 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 		}
 		authToolMap = authRefs
 	}
+
+	// The prompt's tool list has to match what the model was actually given. Built from the static
+	// specs alone, it said "slack_action, authorize_resource" while the API carried 64 tools, and the
+	// prompt won: the model reported it had no way to reach Linear and reached for an authorize link.
+	toolSpecs = append(toolSpecs, describeResolvedTools(mcpToolMap, authToolMap)...)
+	logPromptTools(reqCtx, toolSpecs)
+
+	messages, systemPrompt := BuildMessages(
+		reqCtx,
+		history,
+		userMessage,
+		toolSpecs,
+		r.SystemPrompt,
+	)
+	log.Printf("system prompt built: session=%s chars=%d", reqCtx.SessionID, len(systemPrompt))
 
 	var assistantText strings.Builder
 	loopCtx := &loopContext{
@@ -645,4 +650,24 @@ func unknownResources(requested, known []string) []string {
 		}
 	}
 	return unknown
+}
+
+// describeResolvedTools turns the per-request tools into specs, so the system prompt lists what the
+// model was handed rather than only the static set.
+func describeResolvedTools(mcpTools map[string]MCPToolRef, authTools map[string]AuthToolRef) []ToolSpec {
+	specs := make([]ToolSpec, 0, len(mcpTools)+len(authTools))
+	for name, ref := range mcpTools {
+		specs = append(specs, ToolSpec{
+			Name:        name,
+			Description: "Resolved for this person on " + ref.Server.Name + ".",
+		})
+	}
+	for name, ref := range authTools {
+		specs = append(specs, ToolSpec{
+			Name:        name,
+			Description: "Send this person a link to authorize " + ref.Label + ".",
+		})
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	return specs
 }
