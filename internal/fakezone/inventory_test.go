@@ -105,3 +105,31 @@ func TestCandidateSelectionNeedsTheTraitAndTheResource(t *testing.T) {
 		t.Fatalf("unexpected candidate: %+v", candidates[0])
 	}
 }
+
+func TestWithoutAServiceAccountTheInventoryIsReadAsTheUser(t *testing.T) {
+	// Documented because it is easy to misread as a bug. With no service-account credentials the
+	// inventory read falls back to the asking person's own token, so their permission to list the
+	// zone decides what the agent can offer them. The README says so; this pins it.
+	zone := zoneWithInventory(t)
+	service := discovery.NewService("zone_1", zone.URL(), "", "")
+
+	if _, err := service.ListInventory(context.Background(), "alice-session"); err != nil {
+		t.Fatalf("list inventory: %v", err)
+	}
+	// No client_credentials grant happens, because there is no service account to grant to.
+	for _, exchange := range zone.Exchanges() {
+		if exchange.SubjectToken == fakezone.ServiceAccountToken {
+			t.Fatalf("a service-account token appeared with none configured: %+v", exchange)
+		}
+	}
+}
+
+func TestHalfAServiceAccountIsAnError(t *testing.T) {
+	// An id with no secret is a misconfiguration, and falling back to the user's token would hide it.
+	zone := zoneWithInventory(t)
+	service := discovery.NewService("zone_1", zone.URL(), "svc-id", "")
+
+	if _, err := service.ListInventory(context.Background(), "alice-session"); err == nil {
+		t.Fatal("expected incomplete service-account credentials to be refused")
+	}
+}

@@ -51,7 +51,7 @@ Worth knowing because it decides what the agent can reach, and it is the piece m
 ## How a request flows
 
 1. A message arrives over Socket Mode. The agent resolves the Slack user to a stored Keycard session, refreshing it if expired, and prompts for a link if there is none.
-2. The zone inventory is read with a service account to find candidate MCP servers. This reads registration data only, never a user's data.
+2. The zone inventory is read to find candidate MCP servers. Registration data only, never anyone's content. With `KEYCARD_SERVICE_ACCOUNT_ID` and `_SECRET` set it reads as the service account; with them unset it reads as the asking person, so their own permission to list the zone decides what the agent can offer them.
 3. Each candidate is exchanged against the asking user's token. Ready servers become tools; ones needing consent become an authorize affordance.
 4. The model runs with that tool list. Tool calls carry the user-scoped credential.
 5. The reply posts back to the thread. Session history holds the user message and the assistant's text, so the agent's memory never exceeds what the channel already shows.
