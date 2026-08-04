@@ -7,6 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -62,12 +65,20 @@ var schema string
 const sqliteParams = "_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL"
 
 func Open(path string, cipher *crypto.Cipher) (*DB, error) {
+	// SQLite will create the file but not the directory above it, and the failure it returns for a
+	// missing directory does not mention the path, so "no such file or directory" was the whole
+	// message. Create the parent and name the path on the way out.
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating database directory %s: %w", dir, err)
+		}
+	}
 	conn, err := sql.Open("sqlite3", dsn(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening database %s: %w", path, err)
 	}
 	if err := conn.Ping(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening database %s: %w", path, err)
 	}
 	if err := applySchema(conn); err != nil {
 		return nil, err

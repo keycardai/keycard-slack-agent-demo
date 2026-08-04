@@ -61,7 +61,10 @@ func Load() (Config, error) {
 		cfg.Port = "8080"
 	}
 	if cfg.DatabasePath == "" {
-		cfg.DatabasePath = "/data/slack-agent.db"
+		// A path that works wherever the binary runs. The deployed case mounts a volume and sets
+		// DATABASE_PATH explicitly; defaulting to /data meant an unset value failed on any machine
+		// without that directory, which is every developer machine.
+		cfg.DatabasePath = "slack-agent.db"
 	}
 
 	var missing []string
