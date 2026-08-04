@@ -10,7 +10,7 @@ It is a reference implementation, not a product. The interesting parts are small
 
 ## The two properties worth reading the code for
 
-**The tool list is per request.** For each resource in the zone, the agent tries to exchange the asking user's token. Success means the tool is offered. A refusal means the tool is not offered at all, so the model never learns it exists. Two people in the same channel get different capabilities from the same agent, with nothing configured per channel. See `serverForCandidate` in [`agent/runner_mcp.go`](agent/runner_mcp.go).
+**The tool list is per request.** For each MCP server the agent depends on, it tries to exchange the asking person's token. Success means the tool is offered. A refusal means it is not offered at all, so the model never learns it exists. Two people in the same channel get different capabilities from the same agent, with nothing configured per channel. See `serverForCandidate` in [`agent/runner_mcp.go`](agent/runner_mcp.go).
 
 **A missing authorization goes to a DM.** When the exchange comes back needing consent, the agent sends the consent link privately rather than posting it in the channel. "Connect your Snowflake account" in a shared room tells everyone who lacks access, and it invites the wrong person to click it. See `sendReauthLink` in [`agent/reauth.go`](agent/reauth.go).
 
@@ -110,7 +110,7 @@ The subscriptions are message events rather than `app_mention`, because the agen
 
 `user_change`, `tokens_revoked`, and `app_uninstalled` are the revocation signals. Without them the agent keeps refresh tokens for people and workspaces it has no business holding, so they are not optional the way a surface is.
 
-**Keycard zone.** Six things, in order. The last two are the ones that fail late and confusingly.
+**Keycard zone.** Six things, in order. Steps 2, 4, and 5 are the ones that fail late and somewhere unrelated.
 
 1. **An application for the agent**, with a client secret. Token exchange needs client authentication, so a public PKCE client will not work.
 
@@ -142,12 +142,27 @@ The subscriptions are message events rather than `app_mention`, because the agen
 
 In order, so you can tell how far you got:
 
-1. `go run .` prints nothing and stays running. The bot shows as online in Slack.
+1. `go run .` prints `http server listening` and stays running. The bot shows as online in Slack.
 2. You DM it. It replies asking you to connect, with a link to `<BASE_URL>/oauth/start?t=…`.
 3. You click through the Keycard consent screen and land back on a success page.
-4. You DM it again. It says it is looking at the zone, then that it is ready.
+4. You DM it again. The log shows `mcp discovery resolved`, then `mcp server status … status=ok tools=N`, then `prompt tools:` listing those tools by name.
+5. You ask it something that needs one, and it answers from real data.
 
-Reaching step 4 means the whole identity path works: the signed consent link, the callback, encrypted token storage, and a token exchange against your anchor resource. Tools are a separate matter, see the selection rule above.
+Step 4 is the line worth watching. `prompt tools:` is what the model was actually told it has. If a server reached `status=ok` and its tools are not on that line, the model cannot use them, however healthy the rest of the log looks.
+
+Reaching step 5 means the whole path works: the signed consent link, the callback, encrypted token storage, a token exchange against your anchor, a second exchange for the MCP server, and the MCP handshake.
+
+**Expect the first message of a session to take a few seconds.** Discovery, two exchanges, and the MCP handshake all happen inline before the model is called. Later messages in the same session use the caches. Earlier versions did that work in the background and answered immediately with no tools, which was faster and useless.
+
+## One lesson that is not about the code
+
+The agent has to **call** its tools rather than reason about whether it has access.
+
+An earlier system prompt said to offer an authorization link "rather than guessing or trying another route." Holding 62 working Linear tools, the model followed that instruction exactly.
+
+It decided in advance that it lacked access, called the authorize tool as a way of checking, and read its empty response as confirmation. Five times it told the person their administrator needed to fix the agent config. Then it tried Linear directly and it worked first time.
+
+So [`prompts/system.md`](prompts/system.md) now tells it to try, and says the authorize tool is not a way to find out what it can reach. If you adapt this agent, keep that. A model given a tool and a reason to doubt itself will produce a confident, detailed, wrong diagnosis.
 
 ## When it does not work
 
@@ -174,7 +189,7 @@ Every one of these came out of a real first run, and each fails somewhere unrela
 ## Tests
 
 ```bash
-go test ./...                  # 164 tests, no network, no API key
+go test ./...                  # 193 tests, no network, no API key
 go vet ./...
 ```
 

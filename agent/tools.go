@@ -33,7 +33,7 @@ func ToolList() []ToolSpec {
 		},
 		{
 			Name:        ToolAuthorizeResource,
-			Description: "Send a Keycard authorization link for one or more specific resources (debugging)",
+			Description: "Send this person a Keycard authorization link for named resources. Use only after a tool call has failed for want of consent. This is not a way to check what you can reach, and its response says nothing about your other tools.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
