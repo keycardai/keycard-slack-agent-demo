@@ -78,3 +78,36 @@ func TestBuildChatModeRules(t *testing.T) {
 		t.Fatal("expected different rules for public vs private")
 	}
 }
+
+func TestResolvedToolsAreDescribedForThePrompt(t *testing.T) {
+	// The prompt's tool list is built from these specs, and it used to carry only the static tools while
+	// the API carried 64. The prompt won: the model reported it could not reach Linear and asked for an
+	// authorization link instead of calling the tool it had been given.
+	specs := describeResolvedTools(
+		map[string]MCPToolRef{
+			"linear_list_issues": {Server: MCPServer{Name: "Linear MCP"}},
+		},
+		map[string]AuthToolRef{
+			"authorize_payroll": {Resource: "https://mcp.payroll.example.com/mcp", Label: "Payroll MCP"},
+		},
+	)
+	if len(specs) != 2 {
+		t.Fatalf("expected both tools described, got %+v", specs)
+	}
+	// Sorted, so the prompt is stable between runs rather than reordering with map iteration.
+	if specs[0].Name != "authorize_payroll" || specs[1].Name != "linear_list_issues" {
+		t.Fatalf("expected a stable sorted order, got %+v", specs)
+	}
+	if !strings.Contains(specs[1].Description, "Linear MCP") {
+		t.Fatalf("an MCP tool should name its server: %+v", specs[1])
+	}
+	if !strings.Contains(specs[0].Description, "Payroll MCP") {
+		t.Fatalf("an authorize tool should name what it authorizes: %+v", specs[0])
+	}
+}
+
+func TestNoResolvedToolsDescribesNothing(t *testing.T) {
+	if specs := describeResolvedTools(nil, nil); len(specs) != 0 {
+		t.Fatalf("expected no specs, got %+v", specs)
+	}
+}

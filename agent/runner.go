@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +80,9 @@ type Runner struct {
 	// LinkSigner signs consent links. Without one the agent cannot hand out a link at all, which is
 	// the correct failure: an unsigned link is one anybody can forge.
 	LinkSigner LinkSigner
+	// AnchorResource is the resource this agent provides, from KEYCARD_RESOURCE. It identifies the
+	// agent's own application inside the zone inventory, which is how its dependency list is found.
+	AnchorResource string
 	// Model is the model the agent runs on. Empty falls back to DefaultModel.
 	Model string
 }
@@ -154,27 +158,27 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 
 	toolSpecs := r.toolSpecsForRequest(reqCtx)
 	logPromptContext(reqCtx)
-	logPromptTools(reqCtx, toolSpecs)
 
 	events <- AgentEvent{Type: EventAgentStart}
 	events <- AgentEvent{Type: EventTurnStart}
 	events <- AgentEvent{Type: EventMessageStart, MessageRole: "user", Content: userMessage}
 	events <- AgentEvent{Type: EventMessageEnd, MessageRole: "user", Content: userMessage}
 
-	messages, systemPrompt := BuildMessages(
-		reqCtx,
-		history,
-		userMessage,
-		toolSpecs,
-		r.SystemPrompt,
-	)
-	log.Printf("system prompt built: session=%s chars=%d", reqCtx.SessionID, len(systemPrompt))
-
 	tools := buildAnthropicTools(toolSpecs)
 	mcpToolMap := map[string]MCPToolRef{}
 	authToolMap := map[string]AuthToolRef{}
-	if candidates, ok := r.cachedDiscoveredMCPCandidatesForRequest(keycardToken); ok {
-		mcpTools, refs, unauthorizedCandidates := r.cachedMCPToolsForCandidates(reqCtx, candidates, keycardToken)
+
+	// Resolve everything the model can call before describing any of it.
+	//
+	// Two races lived here, at two layers, and both made the request lose to a warm running in a
+	// goroutine the caller started. The candidate cache was read and abandoned on a miss, and then the
+	// server cache was read before the exchange and MCP handshake had happened. A live run resolved 62
+	// Linear tools and told the user it had none.
+	//
+	// A miss blocks now, at both layers. It costs about a second on the first message of a session,
+	// which is the difference between working and not.
+	if candidates, ok := r.candidatesForRequest(ctx, reqCtx, keycardToken); ok {
+		mcpTools, refs, unauthorizedCandidates := r.mcpToolsForCandidates(ctx, reqCtx, candidates, keycardToken)
 		if len(mcpTools) > 0 {
 			tools = append(tools, mcpTools...)
 		}
@@ -184,9 +188,22 @@ func (r *Runner) Run(ctx context.Context, reqCtx *app.RequestContext, keycardTok
 			tools = append(tools, authTools...)
 		}
 		authToolMap = authRefs
-	} else {
-		log.Printf("mcp discovery skipped: session=%s detail=cache_miss", reqCtx.SessionID)
 	}
+
+	// The prompt's tool list has to match what the model was actually given. Built from the static
+	// specs alone, it said "slack_action, authorize_resource" while the API carried 64 tools, and the
+	// prompt won: the model reported it had no way to reach Linear and reached for an authorize link.
+	toolSpecs = append(toolSpecs, describeResolvedTools(mcpToolMap, authToolMap)...)
+	logPromptTools(reqCtx, toolSpecs)
+
+	messages, systemPrompt := BuildMessages(
+		reqCtx,
+		history,
+		userMessage,
+		toolSpecs,
+		r.SystemPrompt,
+	)
+	log.Printf("system prompt built: session=%s chars=%d", reqCtx.SessionID, len(systemPrompt))
 
 	var assistantText strings.Builder
 	loopCtx := &loopContext{
@@ -376,6 +393,33 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 		resources := requestedResourcesFromInput(input)
 		if len(resources) == 0 {
 			return ToolResult{Content: "missing resource", IsError: true}
+		}
+		// A resource identifier is not the model's to invent. Asked for a board it could not reach, a
+		// model called this with resource="linear", and the link it produced failed at Keycard with
+		// "Requested authorization for unknown resource". The valid identifiers are exactly the ones
+		// resolved for this request, so check against those and hand the real names back on a miss.
+		known := knownResourceIdentifiers(mcpTools, authTools)
+		if unknown := unknownResources(resources, known); len(unknown) > 0 {
+			if len(known) == 0 {
+				// Careful with this wording. It said "no resources are resolved for this user", and a
+				// model read that as a per-user permission problem and told the person to ask an
+				// administrator to provision their identity. Their identity was fine; the agent could
+				// not read its own zone configuration. The tool does not know which cause applies, so
+				// it must not imply one.
+				return ToolResult{
+					Content: "no MCP resources are available for this request, so there is nothing to" +
+						" authorize. This means the agent has no MCP dependency configured or could not" +
+						" read its zone configuration. It is not a problem with this person's account," +
+						" so do not suggest they ask an administrator to provision their identity. Say" +
+						" you cannot reach any tools and that the agent's setup needs checking.",
+					IsError: true,
+				}
+			}
+			return ToolResult{
+				Content: "unknown resource " + strings.Join(unknown, ", ") +
+					"; the identifiers available for this request are " + strings.Join(known, ", "),
+				IsError: true,
+			}
 		}
 		destination, _ := input["destination"].(string)
 		destination = strings.ToLower(strings.TrimSpace(destination))
@@ -568,4 +612,62 @@ func logPromptTools(reqCtx *app.RequestContext, tools []ToolSpec) {
 		names = append(names, tool.Name)
 	}
 	log.Printf("prompt tools: session=%s tools=%s", reqCtx.SessionID, strings.Join(names, ","))
+}
+
+// knownResourceIdentifiers returns every resource identifier resolved for this request, whether it
+// ended up as a usable tool or as something needing authorization.
+func knownResourceIdentifiers(mcpTools map[string]MCPToolRef, authTools map[string]AuthToolRef) []string {
+	seen := map[string]bool{}
+	identifiers := make([]string, 0, len(mcpTools)+len(authTools))
+	add := func(identifier string) {
+		identifier = strings.TrimSpace(identifier)
+		if identifier == "" || seen[identifier] {
+			return
+		}
+		seen[identifier] = true
+		identifiers = append(identifiers, identifier)
+	}
+	for _, ref := range mcpTools {
+		add(ref.Server.URL)
+	}
+	for _, ref := range authTools {
+		add(ref.Resource)
+	}
+	sort.Strings(identifiers)
+	return identifiers
+}
+
+// unknownResources returns the requested identifiers that are not in the known set.
+func unknownResources(requested, known []string) []string {
+	valid := make(map[string]bool, len(known))
+	for _, identifier := range known {
+		valid[strings.ToLower(identifier)] = true
+	}
+	unknown := make([]string, 0)
+	for _, resource := range requested {
+		if !valid[strings.ToLower(strings.TrimSpace(resource))] {
+			unknown = append(unknown, resource)
+		}
+	}
+	return unknown
+}
+
+// describeResolvedTools turns the per-request tools into specs, so the system prompt lists what the
+// model was handed rather than only the static set.
+func describeResolvedTools(mcpTools map[string]MCPToolRef, authTools map[string]AuthToolRef) []ToolSpec {
+	specs := make([]ToolSpec, 0, len(mcpTools)+len(authTools))
+	for name, ref := range mcpTools {
+		specs = append(specs, ToolSpec{
+			Name:        name,
+			Description: "Resolved for this person on " + ref.Server.Name + ".",
+		})
+	}
+	for name, ref := range authTools {
+		specs = append(specs, ToolSpec{
+			Name:        name,
+			Description: "Send this person a link to authorize " + ref.Label + ".",
+		})
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	return specs
 }

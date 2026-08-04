@@ -40,7 +40,7 @@ func (r *Runner) discoveredMCPCandidatesForRequest(ctx context.Context, keycardT
 	if err != nil {
 		return nil, fmt.Errorf("list inventory: %w", err)
 	}
-	return discovery.SelectMCPCandidates(inventory), nil
+	return r.selectCandidates(inventory), nil
 }
 
 func (r *Runner) cachedDiscoveredMCPCandidatesForRequest(keycardToken string) ([]discovery.MCPCandidate, bool) {
@@ -59,7 +59,42 @@ func (r *Runner) cachedDiscoveredMCPCandidatesForRequest(keycardToken string) ([
 	if !ok {
 		return nil, false
 	}
-	return discovery.SelectMCPCandidates(inventory), true
+	return r.selectCandidates(inventory), true
+}
+
+// selectCandidates reads the agent's declared dependencies out of the inventory.
+//
+// A missing anchor is worth a log line rather than silence: it means no application provides
+// KEYCARD_RESOURCE, so every exchange will fail too, and an empty tool list is the first symptom.
+func (r *Runner) selectCandidates(inventory []discovery.ApplicationInventory) []discovery.MCPCandidate {
+	candidates := discovery.SelectMCPCandidates(inventory, r.AnchorResource)
+	if len(candidates) == 0 {
+		if strings.TrimSpace(r.AnchorResource) == "" {
+			log.Printf("mcp discovery skipped: detail=no_anchor_resource_configured")
+		} else if !discovery.HasApplicationProviding(inventory, r.AnchorResource) {
+			log.Printf(
+				"mcp discovery empty: detail=no_application_provides_anchor anchor=%s applications=%d",
+				r.AnchorResource, len(inventory),
+			)
+		}
+	}
+	return candidates
+}
+
+// candidatesForRequest returns the MCP candidates for this request, preferring the warm cache and
+// falling back to a blocking fetch. Only a genuine discovery failure yields ok=false.
+func (r *Runner) candidatesForRequest(ctx context.Context, reqCtx *app.RequestContext, keycardToken string) ([]discovery.MCPCandidate, bool) {
+	if candidates, ok := r.cachedDiscoveredMCPCandidatesForRequest(keycardToken); ok {
+		return candidates, true
+	}
+	candidates, err := r.discoveredMCPCandidatesForRequest(ctx, keycardToken)
+	if err != nil {
+		log.Printf("mcp discovery failed: session=%s err=%v", reqCtx.SessionID, err)
+		return nil, false
+	}
+	log.Printf("mcp discovery resolved: session=%s candidates=%d detail=cache_miss_fetched_inline",
+		reqCtx.SessionID, len(candidates))
+	return candidates, true
 }
 
 func (r *Runner) mcpToolsForCandidates(ctx context.Context, reqCtx *app.RequestContext, candidates []discovery.MCPCandidate, keycardToken string) ([]anthropic.ToolUnionParam, map[string]MCPToolRef, []discovery.MCPCandidate) {
@@ -170,11 +205,10 @@ func (r *Runner) serverForCandidate(ctx context.Context, candidate discovery.MCP
 		return MCPServer{}, candidateRejected
 	}
 	log.Printf(
-		"mcp discovery candidate: application=%s resource=%s endpoint=%s has_mcp_trait=%t dependencies=%d",
+		"mcp discovery candidate: agent=%s resource=%s endpoint=%s conditional_dependencies=%d",
 		candidate.Application.Identifier,
 		candidate.Resource.Identifier,
 		truncateLogValue(server.URL, 120),
-		candidate.HasMCPProviderTrait,
 		len(candidate.Dependencies),
 	)
 	if r == nil || r.ResourceBroker == nil {
@@ -209,11 +243,10 @@ func discoveredMCPServers(candidates []discovery.MCPCandidate) []MCPServer {
 			continue
 		}
 		log.Printf(
-			"mcp discovery candidate: application=%s resource=%s endpoint=%s has_mcp_trait=%t dependencies=%d",
+			"mcp discovery candidate: agent=%s resource=%s endpoint=%s conditional_dependencies=%d",
 			candidate.Application.Identifier,
 			candidate.Resource.Identifier,
 			truncateLogValue(server.URL, 120),
-			candidate.HasMCPProviderTrait,
 			len(candidate.Dependencies),
 		)
 		servers = append(servers, server)

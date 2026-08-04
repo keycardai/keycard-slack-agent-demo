@@ -1,6 +1,7 @@
 package db
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,5 +64,41 @@ func TestDSNPreservesCallerParameters(t *testing.T) {
 	}
 	if strings.Count(dsn("/data/agent.db"), "?") != 1 {
 		t.Fatalf("expected exactly one query separator: %q", dsn("/data/agent.db"))
+	}
+}
+
+func TestOpenCreatesAMissingParentDirectory(t *testing.T) {
+	// The failure this fixes: .env.example shipped DATABASE_PATH=/data/slack-agent.db, the Fly volume
+	// path, so a local run died with a bare "no such file or directory" that named nothing. SQLite
+	// creates the file but not the directory above it.
+	cipher, err := crypto.NewCipher([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	nested := filepath.Join(t.TempDir(), "does", "not", "exist", "agent.db")
+	database, err := Open(nested, cipher)
+	if err != nil {
+		t.Fatalf("expected the parent directory to be created, got %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+}
+
+func TestOpenNamesThePathItFailedOn(t *testing.T) {
+	// A message that does not say which path it tried is the whole reason this took a round trip.
+	cipher, err := crypto.NewCipher([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	// A path whose parent is an existing regular file cannot become a directory.
+	blocker := filepath.Join(t.TempDir(), "iamafile")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err = Open(filepath.Join(blocker, "agent.db"), cipher)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), blocker) {
+		t.Fatalf("error should name the path: %v", err)
 	}
 }

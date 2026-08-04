@@ -17,15 +17,17 @@ import (
 func TestDiscoveredMCPServersFiltersInventory(t *testing.T) {
 	inventory := []discovery.ApplicationInventory{
 		{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources: []keycard.Resource{
-				{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
-				{ID: "res_2", Identifier: "github-api", Name: "GitHub API"},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+				{ID: "dep_2", Identifier: "github-api", Name: "GitHub API"},
 			},
 		},
 	}
 
-	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory))
+	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory, "urn:test:agent"))
 	if len(servers) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(servers))
 	}
@@ -43,15 +45,17 @@ func TestDiscoveredMCPServersFiltersInventory(t *testing.T) {
 func TestDiscoveredMCPServersKeepsNamesDistinctPerResource(t *testing.T) {
 	inventory := []discovery.ApplicationInventory{
 		{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources: []keycard.Resource{
-				{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
-				{ID: "res_2", Identifier: "https://github-admin.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+				{ID: "dep_2", Identifier: "https://github-admin.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
 			},
 		},
 	}
 
-	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory))
+	servers := discoveredMCPServers(discovery.SelectMCPCandidates(inventory, "urn:test:agent"))
 	if len(servers) != 2 {
 		t.Fatalf("expected 2 servers, got %d", len(servers))
 	}
@@ -63,15 +67,20 @@ func TestDiscoveredMCPServersKeepsNamesDistinctPerResource(t *testing.T) {
 func TestMCPToolsForRequestUsesDiscoveryInventory(t *testing.T) {
 	discoverer := &fakeInventoryDiscoverer{
 		inventory: []discovery.ApplicationInventory{{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources:   []keycard.Resource{{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"}},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			},
 		}},
 	}
 
 	var gotToken string
 	var gotServers []MCPServer
 	runner := &Runner{
-		Discovery: discoverer,
+		AnchorResource: "urn:test:agent",
+		Discovery:      discoverer,
 		BuildMCPTools: func(_ context.Context, servers []MCPServer, accessToken string) ([]anthropic.ToolUnionParam, map[string]MCPToolRef) {
 			gotToken = accessToken
 			gotServers = append([]MCPServer(nil), servers...)
@@ -107,12 +116,16 @@ func TestMCPToolsForRequestUsesDiscoveryInventory(t *testing.T) {
 func TestWarmMCPToolsHydratesDiscoveredServers(t *testing.T) {
 	discoverer := &fakeInventoryDiscoverer{
 		inventory: []discovery.ApplicationInventory{{
-			Application: keycard.Application{ID: "app_1", Identifier: "github", Name: "GitHub"},
-			Resources:   []keycard.Resource{{ID: "res_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"}},
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://github-zone.mcp.gateway.context.cloud/mcp", Name: "GitHub MCP"},
+			},
 		}},
 	}
 	broker := &fakeResourceBroker{token: "resource-token"}
-	runner := &Runner{Discovery: discoverer, ResourceBroker: broker}
+	runner := &Runner{Discovery: discoverer, ResourceBroker: broker, AnchorResource: "urn:test:agent"}
 	reqCtx := &app.RequestContext{SessionID: "session-1", TeamID: "T1", UserID: "U1"}
 
 	runner.WarmMCPTools(context.Background(), reqCtx, "user-access-token")
@@ -270,8 +283,14 @@ func TestExecuteToolAuthorizeResourceSupportsMultipleResources(t *testing.T) {
 	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: signer}
 	reqCtx := &app.RequestContext{TeamID: "T1", UserID: "U1", ChannelID: "C1", ThreadTS: "thread-1", SessionID: "session-1"}
 	input := map[string]any{"resources": []any{"https://api.github.com", "https://api.linear.app"}}
+	// The identifiers have to be ones resolved for this request. A model naming something it invented
+	// is refused, which is what this tool used to allow.
+	authTools := map[string]AuthToolRef{
+		"authorize_github": {Resource: "https://api.github.com"},
+		"authorize_linear": {Resource: "https://api.linear.app"},
+	}
 
-	result := runner.executeTool(context.Background(), reqCtx, "base-token", ToolAuthorizeResource, input, nil, nil)
+	result := runner.executeTool(context.Background(), reqCtx, "base-token", ToolAuthorizeResource, input, nil, authTools)
 	if result.IsError {
 		t.Fatalf("expected success, got %+v", result)
 	}
@@ -371,4 +390,57 @@ func (s *stubLinkSigner) SignLink(teamID, userID, channelID string, resources []
 	}
 	s.signed = append(s.signed, strings.Join(append([]string{teamID, userID, channelID}, resources...), "|"))
 	return "signed-token", nil
+}
+
+func TestACacheMissFetchesInlineRatherThanGivingUp(t *testing.T) {
+	// The race this replaces. The caller starts a warm in a goroutine and the request read the cache and
+	// gave up on a miss, so the first message of every session saw no tools. In a real run the agent
+	// resolved 62 Linear tools and told the user it had none, three seconds too late to matter.
+	discoverer := &fakeInventoryDiscoverer{
+		inventory: []discovery.ApplicationInventory{{
+			Application: keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080"},
+			Resources:   []keycard.Resource{{ID: "res_anchor", Identifier: "urn:test:agent"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: "urn:test:agent"},
+				{ID: "dep_1", Identifier: "https://mcp.linear.app/mcp", Name: "Linear MCP"},
+			},
+		}},
+	}
+	// A discoverer with no cache at all, which is the state before any warm has completed.
+	runner := &Runner{Discovery: uncachedDiscoverer{discoverer}, AnchorResource: "urn:test:agent"}
+	reqCtx := &app.RequestContext{SessionID: "session-1", TeamID: "T1", UserID: "U1"}
+
+	if _, ok := runner.cachedDiscoveredMCPCandidatesForRequest("token"); ok {
+		t.Fatal("expected no cache for this test to mean anything")
+	}
+
+	candidates, ok := runner.candidatesForRequest(context.Background(), reqCtx, "token")
+	if !ok {
+		t.Fatal("expected an inline fetch on a cache miss")
+	}
+	if len(candidates) != 1 || candidates[0].Resource.Identifier != "https://mcp.linear.app/mcp" {
+		t.Fatalf("unexpected candidates: %+v", candidates)
+	}
+}
+
+func TestADiscoveryFailureIsNotSilence(t *testing.T) {
+	// A real failure still reports ok=false, so the caller does not confuse "no tools" with "could not
+	// look". They need different things said to the user.
+	discoverer := &fakeInventoryDiscoverer{err: errors.New("status 401: Authentication required")}
+	runner := &Runner{Discovery: uncachedDiscoverer{discoverer}, AnchorResource: "urn:test:agent"}
+	reqCtx := &app.RequestContext{SessionID: "session-1"}
+
+	if _, ok := runner.candidatesForRequest(context.Background(), reqCtx, "token"); ok {
+		t.Fatal("expected a discovery failure to report not-ok")
+	}
+}
+
+// uncachedDiscoverer hides the CachedInventory method, so the runner has to take the fetch path. It
+// models the real state before the first warm completes.
+type uncachedDiscoverer struct {
+	inner *fakeInventoryDiscoverer
+}
+
+func (u uncachedDiscoverer) ListInventory(ctx context.Context, accessToken string) ([]discovery.ApplicationInventory, error) {
+	return u.inner.ListInventory(ctx, accessToken)
 }

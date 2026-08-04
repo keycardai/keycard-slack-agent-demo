@@ -203,9 +203,8 @@ func (h *Handler) runAgent(teamID, userID, channelID, channelType, text, threadT
 		LastSeenAt:    time.Now().Unix(),
 	})
 
-	if h.Agent != nil {
-		go h.Agent.WarmMCPTools(context.Background(), reqCtx, tokens.AccessToken)
-	}
+	// No warm goroutine. The request resolves discovery, the exchange, and the tool list itself, so a
+	// warm running alongside it duplicated every exchange and won nothing: the log showed each one twice.
 
 	responseChan := make(chan agent.AgentEvent)
 	go h.Agent.Run(ctx, reqCtx, tokens.AccessToken, text, responseChan)

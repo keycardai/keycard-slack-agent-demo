@@ -118,14 +118,28 @@ func buildServerTools(ctx context.Context, server MCPServer, accessToken string)
 		return serverToolBuildResult{tools: entry.tools, ok: entry.status == "ok"}
 	}
 
-	logMCPServerStatus(server.Name, "pending", tokenFP, "cache=miss")
-	go refreshMCPToolCache(context.Background(), cacheKey, server, accessToken)
-	return serverToolBuildResult{}
+	// A cold miss loads the tool list now, rather than starting a goroutine and returning nothing.
+	//
+	// This was the third cache on this path with the same shape, and the third to make the first message
+	// of a session useless: the request logged "pending", the background load finished a second later,
+	// and the model was handed no tools while the log said the server was fine. The whole MCP path was
+	// built warm-only, so it optimised latency into never working on a cold start.
+	//
+	// The refresh is behind a singleflight, so doing it inline still collapses with any concurrent load
+	// of the same server rather than doubling the work.
+	entry := refreshMCPToolCache(ctx, cacheKey, server, accessToken)
+	logMCPServerStatus(server.Name, entry.status, tokenFP,
+		fmt.Sprintf("cache=miss loaded tools=%d", len(entry.tools)))
+	return serverToolBuildResult{tools: entry.tools, ok: entry.status == "ok"}
 }
+
+// loadToolCacheEntry is the real loader, replaced in tests so the cold-miss path can be exercised
+// without standing up an MCP server.
+var loadToolCacheEntry = loadMCPToolCacheEntry
 
 func refreshMCPToolCache(ctx context.Context, cacheKey string, server MCPServer, accessToken string) mcpToolCacheEntry {
 	value, _, _ := mcpToolRefreshGroup.Do(cacheKey, func() (any, error) {
-		entry := loadMCPToolCacheEntry(ctx, server, accessToken)
+		entry := loadToolCacheEntry(ctx, server, accessToken)
 		globalMCPToolCache.set(cacheKey, entry)
 		return entry, nil
 	})

@@ -2,6 +2,7 @@ package fakezone_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/keycardai/keycard-slack-agent-demo/discovery"
@@ -9,29 +10,33 @@ import (
 	keycard "github.com/keycardai/keycard-slack-agent-demo/keycardapi"
 )
 
+const agentAnchor = "urn:example:slack-agent"
+
+// zoneWithInventory mirrors the real shape a live run produced: the agent provides one anchor and
+// depends on a third-party MCP endpoint that no application provides, alongside an unrelated app.
 func zoneWithInventory(t *testing.T) *fakezone.Zone {
 	t.Helper()
 	zone := fakezone.New()
 	t.Cleanup(zone.Close)
 	zone.SetInventory(
 		fakezone.Application{
-			App: keycard.Application{
-				ID: "app_1", Identifier: "github", Name: "GitHub",
-				Traits: []keycard.ApplicationTrait{keycard.ApplicationTraitMcpProvider},
+			App:       keycard.Application{ID: "app_agent", Identifier: "http://localhost:8080", Name: "Slack agent"},
+			Resources: []keycard.Resource{{ID: "res_anchor", Identifier: agentAnchor, Name: "Agent anchor"}},
+			Dependencies: []keycard.Resource{
+				{ID: "res_anchor", Identifier: agentAnchor},
+				// Provided by nobody, which is the correct registration for a third-party API and the
+				// exact case the previous selection rule could not see.
+				{ID: "dep_linear", Identifier: "https://mcp.linear.app/mcp", Name: "Linear MCP"},
+				{ID: "dep_api", Identifier: "https://api.github.com", Name: "GitHub API"},
 			},
-			Resources:    []keycard.Resource{{ID: "res_1", Identifier: "urn:example:mcp-github", Name: "GitHub MCP"}},
-			Dependencies: []keycard.Resource{{ID: "dep_1", Identifier: "urn:example:github-api"}},
 		},
 		fakezone.Application{
 			App: keycard.Application{
-				ID: "app_2", Identifier: "payroll", Name: "Payroll",
-				Traits: []keycard.ApplicationTrait{keycard.ApplicationTraitGateway},
+				ID: "app_other", Identifier: "payroll", Name: "Payroll",
+				Traits: []keycard.ApplicationTrait{keycard.ApplicationTraitMcpProvider},
 			},
-			// Named to look MCP-facing while its application never declares the trait, which is
-			// exactly the accidental exposure the selection rule has to reject.
-			Resources: []keycard.Resource{
-				{ID: "res_2", Identifier: "urn:example:mcp-payroll", Name: "Payroll MCP"},
-			},
+			// Another agent's MCP server. Present in the zone, not this agent's reach.
+			Resources: []keycard.Resource{{ID: "res_payroll", Identifier: "urn:example:mcp-payroll"}},
 		},
 	)
 	return zone
@@ -55,15 +60,15 @@ func TestInventoryIsReadThroughTheManagementAPI(t *testing.T) {
 	for _, entry := range inventory {
 		byID[entry.Application.ID] = entry
 	}
-	github, ok := byID["app_1"]
+	agent, ok := byID["app_agent"]
 	if !ok {
-		t.Fatalf("github application missing: %#v", byID)
+		t.Fatalf("agent application missing: %#v", byID)
 	}
-	if len(github.Resources) != 1 || github.Resources[0].Identifier != "urn:example:mcp-github" {
-		t.Fatalf("unexpected resources: %#v", github.Resources)
+	if len(agent.Resources) != 1 || agent.Resources[0].Identifier != agentAnchor {
+		t.Fatalf("unexpected resources: %#v", agent.Resources)
 	}
-	if len(github.Dependencies) != 1 {
-		t.Fatalf("dependencies were not read: %#v", github.Dependencies)
+	if len(agent.Dependencies) != 3 {
+		t.Fatalf("dependencies were not read: %#v", agent.Dependencies)
 	}
 }
 
@@ -83,25 +88,50 @@ func TestInventoryReadNeverPresentsAUserToken(t *testing.T) {
 	}
 }
 
-func TestCandidateSelectionNeedsTheTraitAndTheResource(t *testing.T) {
+func TestSelectionReadsTheAgentsDependenciesFromALiveInventory(t *testing.T) {
+	// End to end over the Management API: the agent is found by the anchor it provides, and its
+	// candidates are its own declared dependencies. The third-party endpoint has no providing
+	// application, which is what the previous rule could not see.
 	zone := zoneWithInventory(t)
 	inventory, err := newDiscovery(zone).ListInventory(context.Background(), "alice-session")
 	if err != nil {
 		t.Fatalf("list inventory: %v", err)
 	}
-	candidates := discovery.SelectMCPCandidates(inventory)
+	candidates := discovery.SelectMCPCandidates(inventory, agentAnchor)
 
-	// Payroll's resource is named to look MCP-facing, but its application declares traits and
-	// mcp-provider is not among them, so it must not become a tool.
+	if len(candidates) != 1 {
+		t.Fatalf("expected exactly the Linear MCP dependency, got %+v", candidates)
+	}
+	if candidates[0].Resource.Identifier != "https://mcp.linear.app/mcp" {
+		t.Fatalf("unexpected candidate: %+v", candidates[0])
+	}
+	// The other application's own MCP resource is not this agent's reach.
 	for _, candidate := range candidates {
-		if candidate.Application.ID == "app_2" {
-			t.Fatalf("an application without the mcp-provider trait became a candidate: %+v", candidate)
+		if candidate.Application.ID != "app_agent" {
+			t.Fatalf("a candidate came from another application: %+v", candidate)
 		}
 	}
-	if len(candidates) != 1 {
-		t.Fatalf("expected exactly the github MCP resource, got %+v", candidates)
+}
+
+func TestWithoutAServiceAccountTheInventoryReadFailsClearly(t *testing.T) {
+	// This test used to assert the opposite, that the read falls back to the asking user's token, and it
+	// passed because the fake accepted any bearer token. The real Management API answers 401, so the
+	// fake is strict now and the code fails before the request with a message naming what to set.
+	zone := zoneWithInventory(t)
+	service := discovery.NewService("zone_1", zone.URL(), "", "")
+
+	_, err := service.ListInventory(context.Background(), "alice-session")
+	if !errors.Is(err, discovery.ErrNoServiceAccount) {
+		t.Fatalf("expected ErrNoServiceAccount, got %v", err)
 	}
-	if candidates[0].Resource.Identifier != "urn:example:mcp-github" {
-		t.Fatalf("unexpected candidate: %+v", candidates[0])
+}
+
+func TestHalfAServiceAccountIsAnError(t *testing.T) {
+	// An id with no secret is a misconfiguration, and falling back to the user's token would hide it.
+	zone := zoneWithInventory(t)
+	service := discovery.NewService("zone_1", zone.URL(), "svc-id", "")
+
+	if _, err := service.ListInventory(context.Background(), "alice-session"); err == nil {
+		t.Fatal("expected incomplete service-account credentials to be refused")
 	}
 }

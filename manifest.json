@@ -1,0 +1,52 @@
+{
+  "display_information": {
+    "name": "Keycard Agent",
+    "description": "A Slack agent that acts with the access of the person who asked, not one shared bot credential.",
+    "long_description": "A reference implementation of per-request identity for Slack agents. Each tool call is authorized for the person who sent the message, so two people in the same channel can get different capabilities from the same agent, and every downstream action is attributable to a named human rather than to a bot.",
+    "background_color": "#1a1a1a"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "Keycard Agent",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "im:write",
+        "reactions:write",
+        "users:read",
+        "channels:history",
+        "groups:history",
+        "im:history",
+        "mpim:history"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim",
+        "user_change",
+        "tokens_revoked",
+        "app_uninstalled"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": false
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}

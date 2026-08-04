@@ -28,8 +28,11 @@ type Service struct {
 	serviceAccountID     string
 	serviceAccountSecret string
 	newClient            func(accessToken string) inventoryClient
-	cacheTTL             time.Duration
-	now                  func() time.Time
+	// tokenSource fetches the Management API credential. A seam, so a unit test about pagination or
+	// caching does not need an HTTP server standing in for the token endpoint.
+	tokenSource func(ctx context.Context) (string, error)
+	cacheTTL    time.Duration
+	now         func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]cachedInventory
@@ -133,28 +136,39 @@ func (s *Service) managementToken(ctx context.Context, accessToken string) (toke
 	if err != nil {
 		return "", "", err
 	}
-	if cacheKey == "service-account" {
-		token, err := exchangeServiceAccountToken(ctx, s.apiBaseURL, s.serviceAccountID, s.serviceAccountSecret)
-		if err != nil {
-			return "", "", fmt.Errorf("exchange service account token: %w", err)
-		}
-		return token, cacheKey, nil
+	token, err = s.fetchManagementToken(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("exchange service account token: %w", err)
 	}
-	return cacheKey, cacheKey, nil
+	return token, cacheKey, nil
 }
 
-func (s *Service) managementCacheKey(accessToken string) (string, error) {
-	if strings.TrimSpace(s.serviceAccountID) != "" || strings.TrimSpace(s.serviceAccountSecret) != "" {
-		if strings.TrimSpace(s.serviceAccountID) == "" || strings.TrimSpace(s.serviceAccountSecret) == "" {
-			return "", errors.New("incomplete service account credentials")
-		}
-		return "service-account", nil
+func (s *Service) fetchManagementToken(ctx context.Context) (string, error) {
+	if s.tokenSource != nil {
+		return s.tokenSource(ctx)
 	}
-	token := strings.TrimSpace(accessToken)
-	if token == "" {
-		return "", errors.New("missing access token")
+	return exchangeServiceAccountToken(ctx, s.apiBaseURL, s.serviceAccountID, s.serviceAccountSecret)
+}
+
+// ErrNoServiceAccount means the zone inventory cannot be read because no service account is configured.
+//
+// There used to be a fallback here that read the inventory with the asking user's access token. It
+// cannot work and it never could: a user's token is audienced to a resource, and the Management API
+// wants a service-account credential, so the fallback produced "status 401: Authentication required"
+// from a code path that looked deliberate. Failing here says what is actually wrong.
+var ErrNoServiceAccount = errors.New(
+	"reading the zone inventory needs KEYCARD_SERVICE_ACCOUNT_ID and KEYCARD_SERVICE_ACCOUNT_SECRET")
+
+func (s *Service) managementCacheKey(_ string) (string, error) {
+	id := strings.TrimSpace(s.serviceAccountID)
+	secret := strings.TrimSpace(s.serviceAccountSecret)
+	if id == "" && secret == "" {
+		return "", ErrNoServiceAccount
 	}
-	return token, nil
+	if id == "" || secret == "" {
+		return "", errors.New("incomplete service account credentials: set both the id and the secret")
+	}
+	return "service-account", nil
 }
 
 func (s *Service) cachedInventory(token string, now time.Time) ([]ApplicationInventory, bool) {
