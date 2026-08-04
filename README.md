@@ -73,7 +73,7 @@ Three paths, because per-user binding means there is no single identity to switc
 - **The app is uninstalled, or its tokens are revoked.** Every stored session for that workspace goes.
 - **A person's identity stops resolving.** If Keycard no longer returns a subject for a stored session, the session is deleted and they are asked to connect again.
 
-Being straight about the trade, since it is the honest cost of this model. One agent identity is a single thing to revoke. Per-user binding is a grant per person per resource, and revoking upstream access in Keycard is a separate act from what happens here. What you get for that is a compromise bounded to one person and an audit trail that names them.
+This costs more than the model it replaces. One agent identity is a single thing to revoke. Per-user binding is a grant per person per resource, and revoking upstream access in Keycard is a separate act from what happens here. What you get for that is a compromise bounded to one person and an audit trail that names them.
 
 ## Running it
 
@@ -84,7 +84,11 @@ cp .env.example .env    # then fill it in
 go run .
 ```
 
-**Slack app.** Enable Socket Mode and generate an app-level token (`SLACK_APP_TOKEN`).
+**Slack app.** Create it from [`manifest.json`](manifest.json). At https://api.slack.com/apps choose *Create New App*, then *From an app manifest*, pick the workspace, and paste the file.
+
+Two things the manifest cannot do for you. Generate an **app-level token** with `connections:write` under *Basic Information → App-Level Tokens*, which becomes `SLACK_APP_TOKEN`; Socket Mode needs it and it is not a bot scope. Then install the app and copy the bot token into `SLACK_BOT_TOKEN`.
+
+The manifest asks for history scopes and message events on all four surfaces so the agent works wherever you put it. For a real deployment, drop the surfaces you are not using: an agent that only lives in public channels needs neither `groups:history` nor `mpim:history`.
 
 Bot scopes, matched to the calls the agent actually makes:
 
@@ -94,9 +98,9 @@ Bot scopes, matched to the calls the agent actually makes:
 - `users:read` to receive `user_change`, which is how a deactivation reaches the agent
 - `channels:history`, `groups:history`, `im:history`, `mpim:history` for wherever you want it to work, covering both the message events and reading a thread for context
 
-Event subscriptions are message events rather than `app_mention`, because the agent decides for itself whether a message is addressed to it. Subscribe to `message.im` plus whichever of `message.channels`, `message.groups`, and `message.mpim` you need. No slash commands, so no `commands` scope.
+The subscriptions are message events rather than `app_mention`, because the agent decides for itself whether a message is addressed to it. There are no slash commands, so no `commands` scope.
 
-Also subscribe to `user_change`, `tokens_revoked`, and `app_uninstalled`. Those are the revocation signals, and without them the agent keeps refresh tokens for people and workspaces it has no business holding.
+`user_change`, `tokens_revoked`, and `app_uninstalled` are the revocation signals. Without them the agent keeps refresh tokens for people and workspaces it has no business holding, so they are not optional the way a surface is.
 
 **Keycard zone.** Register the agent as an application with a client secret, and give it a small resource of its own that it provides.
 
