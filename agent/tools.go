@@ -42,12 +42,6 @@ func ToolList() []ToolSpec {
 						"type":  "array",
 						"items": map[string]any{"type": "string"},
 					},
-					"destination": map[string]any{
-						"type": "string",
-						"enum": []string{"auto", "dm", "channel"},
-					},
-					"channel":   map[string]any{"type": "string"},
-					"thread_ts": map[string]any{"type": "string"},
 				},
 			},
 		},
