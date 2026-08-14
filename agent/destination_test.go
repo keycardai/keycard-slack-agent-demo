@@ -152,17 +152,69 @@ func TestADMCannotBeUsedToReachAChannel(t *testing.T) {
 }
 
 func TestTheToolSchemaDoesNotOfferADestinationOverride(t *testing.T) {
-	// If the parameters come back, the guards above become advisory again.
+	// An ALLOWLIST, deliberately, because the denylist this replaced only banned
+	// "allow_external" and "user_id" and so said nothing about "destination". That parameter
+	// sat on authorize_resource with an enum including "channel", handing the model the
+	// choice the DM guard exists to make, and the test stayed green the whole time. A new
+	// parameter now has to be argued for here before a model can ever see it.
+	//
+	// slack_action may take channel and thread_ts because slackAction validates both against
+	// the request context. authorize_resource takes neither: it derives everything from reqCtx.
+	allowed := map[string]map[string]bool{
+		ToolSlackAction: {
+			"action": true, "channel": true, "thread_ts": true,
+			"ts": true, "text": true, "reaction": true,
+		},
+		ToolAuthorizeResource: {
+			"resource": true, "resources": true,
+		},
+	}
 	for _, tool := range ToolList() {
+		permitted, known := allowed[tool.Name]
+		if !known {
+			t.Fatalf("tool %q has no allowlist entry; add one and justify every parameter", tool.Name)
+		}
 		schema, ok := tool.InputSchema["properties"].(map[string]any)
 		if !ok {
 			continue
 		}
-		for _, banned := range []string{"allow_external", "user_id"} {
-			if _, present := schema[banned]; present {
-				t.Fatalf("tool %q offers the model a %q parameter", tool.Name, banned)
+		for name := range schema {
+			if !permitted[name] {
+				t.Fatalf("tool %q offers the model an un-allowlisted %q parameter", tool.Name, name)
 			}
 		}
+	}
+}
+
+func TestAuthorizeResourceCannotBeAimedAtAChannel(t *testing.T) {
+	// The regression the allowlist above exists to catch, exercised end to end: even when the
+	// model asks for a channel destination, the consent link goes to a DM because the request
+	// was not private. The parameters are gone from the schema, so this asserts that the
+	// executor ignores them rather than trusting the schema alone to keep them away.
+	slack := &recordingSlack{}
+	runner := &Runner{SlackActions: slack, BaseURL: "https://agent.example.com", LinkSigner: &stubLinkSigner{}}
+	authTools := map[string]AuthToolRef{
+		"authorize_linear": {Resource: "https://mcp.linear.app/mcp", Label: "Linear MCP"},
+	}
+
+	result := runner.executeTool(context.Background(), channelRequest(), "token", ToolAuthorizeResource,
+		map[string]any{
+			"resource":    "https://mcp.linear.app/mcp",
+			"destination": "channel",
+			"channel":     "C-public",
+		}, nil, authTools)
+
+	if result.IsError {
+		t.Fatalf("expected the consent link to be sent, got %+v", result)
+	}
+	// posts are recorded as "channel|text".
+	for _, post := range slack.posts {
+		if strings.HasPrefix(post, "C-public|") {
+			t.Fatalf("a consent link reached the channel the model named: %#v", slack.posts)
+		}
+	}
+	if len(slack.openDMs) != 1 || slack.openDMs[0] != "U-asker" {
+		t.Fatalf("expected the link to go to the asker's DM, got openDMs=%#v", slack.openDMs)
 	}
 }
 

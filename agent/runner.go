@@ -421,13 +421,11 @@ func (r *Runner) executeTool(ctx context.Context, reqCtx *app.RequestContext, ke
 				IsError: true,
 			}
 		}
-		destination, _ := input["destination"].(string)
-		destination = strings.ToLower(strings.TrimSpace(destination))
-		channel, _ := input["channel"].(string)
-		channel = strings.TrimSpace(channel)
-		threadTS, _ := input["thread_ts"].(string)
-		threadTS = strings.TrimSpace(threadTS)
-		return r.sendReauthLink(ctx, reqCtx, resources, destination, channel, threadTS)
+		// Destination, channel and thread all come off the request, never off the tool call.
+		// They used to be read from `input`, which handed the model the one decision this
+		// guard exists to make: a consent link is private unless the conversation already is.
+		// "auto" lets sendReauthLink derive all three from reqCtx.
+		return r.sendReauthLink(ctx, reqCtx, resources, "auto", "", "")
 	default:
 		return ToolResult{Content: "unknown tool", IsError: true}
 	}
