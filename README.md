@@ -18,6 +18,12 @@ Two smaller guards follow the same instinct. A DM cannot be used to write into a
 
 Both are read off the request, never off the model's tool call. That distinction is the whole point of them. An earlier version let the model waive the destination guard with an `allow_external` flag and name a DM recipient itself, which made both of them suggestions to the component they existed to constrain. If you take one idea from this repo, take that one: a guard the model can set is not a guard.
 
+That sentence took two passes to become true, which is the more useful half of the story.
+
+After the `allow_external` removal, `authorize_resource` still exposed `destination` with a `channel` option, plus `channel` and `thread_ts`. The executor read all three straight off the tool call. So a fooled model could ask for the consent link to be posted into the room, which is the disclosure the DM guard exists to prevent, while the paragraph above said otherwise. Those parameters are gone and the executor passes `auto`, so all three come off the request.
+
+**The test that should have caught it is the durable part.** It banned a hardcoded list of two parameter names, so it said nothing about a third. It is now an allowlist: every parameter a model can see has to be argued for by name, and a new tool with no entry fails. A ban list only knows about the mistake you already made.
+
 ### One thing to know before you deploy it
 
 The thread is the largest untrusted input in the system.
@@ -189,9 +195,11 @@ Every one of these came out of a real first run, and each fails somewhere unrela
 ## Tests
 
 ```bash
-go test ./...                  # 193 tests, no network, no API key
+go test ./...                  # 199 tests, no network, no API key
 go vet ./...
 ```
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same suite on every pull request and every push to `main`. It adds four things: `gofmt -l` as a hard failure, `go test -race`, a `go vet -tags golden` that proves the golden tests still compile without running them, and a `docker build`, so a broken image is caught here rather than at deploy.
 
 Golden tests exercise the agent loop against a live model, with Slack faked and a temporary database. They are behind a build tag so they never run by accident:
 
