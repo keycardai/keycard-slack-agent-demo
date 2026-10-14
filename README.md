@@ -212,4 +212,5 @@ What is still not covered is a real workspace. MCP servers are not wired into th
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](./LICENSE). The Keycard name and logo are trademarks;
+[TRADEMARKS.md](./TRADEMARKS.md) states how they may be used.
