@@ -79,7 +79,7 @@ This costs more than the model it replaces. One agent identity is a single thing
 
 ## Running it
 
-Requires Go 1.24 and a Keycard zone.
+Requires Go 1.26.10 and a Keycard zone.
 
 ```bash
 cp .env.example .env    # then fill it in
